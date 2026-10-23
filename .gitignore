@@ -1,0 +1,8 @@
+/dist/
+*.log
+__pycache__/
+*.pyc
+/steam-sage-companion
+/steam-sage-companion.exe
+settings.json
+install.json

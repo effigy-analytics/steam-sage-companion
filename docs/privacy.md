@@ -1,0 +1,27 @@
+# What the companion reads
+
+The companion discovers Steam in expected installation locations and reads the
+selected account's local collection namespace file. A custom installation folder
+can be selected in local controls. It does not change Steam files, read Steam
+login tokens or passwords, or ask for a Steam API key.
+
+After explicit local approval, the chosen Sage origin can read collection IDs,
+names and game memberships, the selected SteamID64, opaque install/source IDs,
+and successful-read/error metadata. Raw namespace records, filesystem paths,
+unrelated Steam settings and credentials are excluded from the protocol.
+
+The companion makes no data uploads. The browser receives the snapshot locally,
+keeps the last successful copy and a revocable connection credential, and sends
+normalized game IDs to Sage's recommendation API when asking for a pick. The
+API does not persist those preferences. The companion does not expand the public
+API's access to private owned-library data or friends' private collections.
+
+Local settings contain the selected account/root, source IDs, derived HMAC pairing credentials and the optional startup setting. They are stored in the per-user config
+directory, not in the release archive. Revocation removes a site's derived credentials.
+Uninstall stops the helper and removes its own launcher/startup files. Settings
+remain unless `uninstall --purge` is used. Browser data is managed independently
+by Sage or the browser's site-data controls. No cross-device sync is enabled.
+
+Logs and the `inspect` command use counts/read states rather than account IDs,
+collection contents, source paths, tokens or launch URLs. Please do not attach
+your actual Steam JSON, settings file, control URL or tokens to a public issue.

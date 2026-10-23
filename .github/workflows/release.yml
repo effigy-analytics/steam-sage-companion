@@ -1,0 +1,32 @@
+name: Prepare release artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build; this workflow does not publish a release
+        required: true
+        default: 0.1.0-alpha.1
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.8
+      - run: go test -race ./...
+      - name: Build allowlisted archives
+        env:
+          COMPANION_VERSION: ${{ inputs.version }}
+        run: python3 scripts/build_release.py --version "$COMPANION_VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: companion-release-candidate
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

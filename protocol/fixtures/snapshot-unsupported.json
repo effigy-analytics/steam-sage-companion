@@ -1,0 +1,21 @@
+{
+  "protocol": 1,
+  "state": "ready",
+  "attempted_at": "2026-10-23T12:00:00Z",
+  "error": null,
+  "snapshot": {
+    "protocol": 1,
+    "instance_id": "test-install",
+    "source_id": "test-source",
+    "steam_id": "76561198000000001",
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "read_at": "2026-10-23T12:00:00Z",
+    "collections": [
+      {
+        "id": "done",
+        "name": "Completed",
+        "status": "unsupported"
+      }
+    ]
+  }
+}

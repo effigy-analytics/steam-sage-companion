@@ -1,0 +1,42 @@
+# Steam Sage Companion
+
+An optional, read-only local connection between Steam library collections and
+Steam Sage. MIT licensed. Linux x64 alpha candidate; source review complete, publication pending.
+
+Build with Go 1.26 or newer: `go build ./cmd/steam-sage-companion`.
+Run `go run ./cmd/steam-sage-companion inspect` to check discovery. This prints
+counts and read states, never paths, account IDs, collection names or raw data.
+Run tests with `go test ./...` and race checks with `go test -race ./...`.
+
+For a prepared Linux archive, verify SHA256SUMS, extract it and run `./install.sh`.
+For a source build, run the executable's `install` command, then open Steam Sage
+Companion from the application launcher. No administrator access is needed.
+
+Run the built helper with `open` (or no arguments) to launch local controls;
+subsequent launches reopen the running instance. `serve --background` runs without
+opening a tab. `--config-dir <directory>` isolates an experimental setup. Local
+controls let you select an account, approve/revoke a site, choose a custom Steam
+folder, opt into startup, and stop the helper. In Sage choose Connect companion,
+then approve its exact origin locally. Read the [installation guide](docs/installation.md).
+
+The tool reads known Steam collection locations without changing them. No Steam
+password, API key or private Effigy dependency is needed. It does not upload
+data. Last-good snapshots survive temporary source errors during a running
+session; the browser will retain its own last successful copy after connection.
+
+`uninstall` stops/removes owned installation/startup files and keeps settings.
+`uninstall --purge` also removes owned settings. Changed or unrelated files,
+Steam data and browser choices are preserved.
+
+Build release candidates with `python3 scripts/build_release.py --version
+0.1.0-alpha.1` from a clean Git commit. This creates allowlisted archives and
+checksums, and never publishes them. Dependencies are public and pinned in
+go.mod/go.sum; no Effigy credentials, private packages or user Steam data are
+needed. The runtime is the single Go executable; Go/Python are build tools.
+
+See [privacy](docs/privacy.md), [protocol](docs/protocol.md), and
+[security boundaries](docs/security.md). Report reproducible behavior with
+synthetic examples rather than attaching Steam files or credentials.
+
+Linux x64 is the first validation target. Windows is experimental until actual
+installation and browser tests are recorded; building it alone is insufficient.
