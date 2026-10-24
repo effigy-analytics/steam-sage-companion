@@ -543,3 +543,27 @@ func TestInstalledNativeOpeningReportsDispatchFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestInstallerTerminalClosurePreservesBrowserDispatch(t *testing.T) {
+	f := newInstalledFixture(t)
+	// Delay the synthetic OS dispatcher until after the installer exits and its
+	// controlling terminal closes. It must survive without blocking the installer.
+	if err := os.WriteFile(filepath.Join(f.home, "tools", "xdg-open"), []byte("#!/bin/sh\n/bin/sleep 0.25\nprintf '%s\\n' \"$1\" >> \"$STEAM_SAGE_TEST_OPEN_FILE\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	packageDir := filepath.Join(t.TempDir(), "download")
+	os.MkdirAll(packageDir, 0700)
+	binary, _ := os.ReadFile(f.binary)
+	os.WriteFile(filepath.Join(packageDir, "steam-sage-companion"), binary, 0700)
+	script, _ := os.ReadFile("../../packaging/linux/install.sh")
+	os.WriteFile(filepath.Join(packageDir, "install.sh"), script, 0700)
+	terminal := exec.Command("script", "-q", "-e", "-c", `./install.sh --config-dir "$STEAM_SAGE_TEST_CONFIG"`, "/dev/null")
+	terminal.Dir, terminal.Env = packageDir, append(f.env, "STEAM_SAGE_TEST_CONFIG="+f.cfg)
+	if out, err := terminal.CombinedOutput(); err != nil {
+		t.Fatalf("installer in terminal: %v %s", err, out)
+	}
+	if err := app.RequestReady(f.cfg); err != nil {
+		t.Fatal("helper did not survive closed terminal:", err)
+	}
+	f.sageOnly(t)
+}
