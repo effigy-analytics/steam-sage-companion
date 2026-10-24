@@ -1,7 +1,8 @@
 # Linux alpha installation
 
-This is a reviewed release candidate pending publication. Use a downloaded Linux
-amd64 archive only after checking its SHA-256 against the release's SHA256SUMS.
+This is the Linux x64 alpha. Download it from the project's
+[GitHub Releases](https://github.com/effigy-analytics/steam-sage-companion/releases)
+and check its SHA-256 against the release's SHA256SUMS.
 Extract it, open that directory, then run `./install.sh`. Installation is per-user
 and needs no administrator access. It places the executable under `~/.local/bin`
 and an application launcher under the user's data directory.

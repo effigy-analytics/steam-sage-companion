@@ -41,5 +41,5 @@ credential or forge a snapshot. This does not isolate the tool from malicious
 same-user software, a compromised Sage origin, or a hostile operating system.
 
 Do not send credentials or private Steam files with vulnerability reports. This
-candidate has received an independent source review and remains unpublished; recorded browser
+alpha has received an independent source review; recorded browser
 tests and remaining platform limits accompany the release candidate.
