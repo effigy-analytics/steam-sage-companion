@@ -65,13 +65,22 @@ func TestAtomicReplacementAndMissedEvent(t *testing.T) {
 		t.Fatal("watcher did not stop")
 	}
 }
+
+// A controlled clock makes freshness independent of host timer resolution.
+type freshnessClock struct{ current time.Time }
+
+func (c *freshnessClock) Now() time.Time                       { return c.current }
+func (c *freshnessClock) After(time.Duration) <-chan time.Time { return nil }
+
 func TestUnchangedReadRefreshesFreshnessNotRevision(t *testing.T) {
 	a := fixtureAccount(t)
-	w := NewWatcher(a, nil)
+	clock := &freshnessClock{current: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}
+	w := NewWatcher(a, clock)
 	before := w.Current()
+	clock.current = clock.current.Add(time.Minute)
 	w.Refresh()
 	after := w.Current()
-	if after.Snapshot.Revision != before.Snapshot.Revision || after.Snapshot.ReadAt == before.Snapshot.ReadAt {
+	if after.Snapshot.Revision != before.Snapshot.Revision || after.Snapshot.ReadAt != clock.current.Format(time.RFC3339Nano) || after.Snapshot.ReadAt == before.Snapshot.ReadAt {
 		t.Fatal("freshness/revision conflated")
 	}
 }
