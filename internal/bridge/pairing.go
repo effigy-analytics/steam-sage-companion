@@ -17,7 +17,7 @@ type pending struct {
 }
 type receipt struct {
 	Origin, Challenge, PairingHash, State string
-	Expires, Created                      time.Time
+	Expires, Created, RequestExpires      time.Time
 }
 
 func (s *Server) finishPairing(id string, p *pending, state, pairingHash string) {
@@ -30,7 +30,7 @@ func (s *Server) finishPairing(id string, p *pending, state, pairingHash string)
 		}
 		delete(s.receipts, oldest)
 	}
-	s.receipts[id] = &receipt{Origin: p.Origin, Challenge: p.Challenge, PairingHash: pairingHash, State: state, Created: s.now(), Expires: s.now().Add(120 * time.Second)}
+	s.receipts[id] = &receipt{Origin: p.Origin, Challenge: p.Challenge, PairingHash: pairingHash, State: state, Created: s.now(), Expires: s.now().Add(120 * time.Second), RequestExpires: p.Expires}
 	delete(s.pending, id)
 }
 func pairingGone(w http.ResponseWriter, state string) {
@@ -78,7 +78,7 @@ func (s *Server) pairing(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.pending[body.ID]
 	if !ok {
 		rec, exists := s.receipts[body.ID]
-		if !exists {
+		if !exists || rec.State == "expired" {
 			pairingGone(w, "expired")
 			return
 		}
@@ -130,7 +130,7 @@ func (s *Server) pairing(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if p.SteamID != s.cfg.Store.View().SelectedSteamID {
-			delete(s.pending, body.ID)
+			s.finishPairing(body.ID, p, "expired", "")
 			pairingGone(w, "expired")
 			return
 		}

@@ -95,7 +95,7 @@ func (s *Server) reap() {
 	}
 	for id, p := range s.pending {
 		if !now.Before(p.Expires) {
-			delete(s.pending, id)
+			s.finishPairing(id, p, "expired", "")
 		}
 	}
 	for key, t := range s.launches {
