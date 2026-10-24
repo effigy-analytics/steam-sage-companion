@@ -1,0 +1,10 @@
+{
+  "protocol": 1,
+  "helper_version": "synthetic-guided",
+  "instance_id": "synthetic-instance",
+  "capabilities": [
+    "pairing-ui-v1",
+    "pairing-cancel-v1",
+    "settings-ui-v1"
+  ]
+}

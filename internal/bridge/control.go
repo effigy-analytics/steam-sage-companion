@@ -66,6 +66,20 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 			value["source"] = s.provider.Snapshot(c.SelectedSteamID)
 		}
 		reply(w, 200, value)
+	case "POST /control/decline":
+		var body struct {
+			ID string `json:"request_id"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		p, ok := s.pending[body.ID]
+		if !ok {
+			fail(w, 410)
+			return
+		}
+		s.finishPairing(body.ID, p, "declined", "")
+		reply(w, 200, map[string]bool{"declined": true})
 	case "POST /control/approve":
 		var body struct {
 			ID string `json:"request_id"`

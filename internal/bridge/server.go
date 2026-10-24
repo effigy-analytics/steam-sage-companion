@@ -4,7 +4,6 @@ package bridge
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -44,11 +43,8 @@ type Config struct {
 	OnStartup    func(bool) error
 	OnChooseRoot func() error
 	OnSetRoot    func(string) error
+	OpenBrowser  func(url string, exited func(error)) error
 	OnStop       func()
-}
-type pending struct {
-	Origin, Challenge, SteamID string
-	Expires                    time.Time
 }
 type Server struct {
 	mu                 sync.Mutex
@@ -59,10 +55,14 @@ type Server struct {
 	launches, controls map[string]time.Time
 	attempts           []time.Time
 	proofs             map[string]proofChallenge
+	receipts           map[string]*receipt
+	settings           map[string]*opening
+	openAttempts       []time.Time
+	openGeneration     uint64
 }
 
 func New(cfg Config, provider SnapshotProvider) *Server {
-	return &Server{cfg: cfg, provider: provider, now: time.Now, pending: map[string]*pending{}, proofs: map[string]proofChallenge{}, launches: map[string]time.Time{}, controls: map[string]time.Time{}}
+	return &Server{cfg: cfg, provider: provider, now: time.Now, pending: map[string]*pending{}, receipts: map[string]*receipt{}, settings: map[string]*opening{}, proofs: map[string]proofChallenge{}, launches: map[string]time.Time{}, controls: map[string]time.Time{}}
 }
 func secret() string {
 	data := make([]byte, 32)
@@ -74,12 +74,20 @@ func (s *Server) NewControlURL() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reap()
+	return s.newControlURLLocked("")
+}
+func (s *Server) newControlURLLocked(requestID string) string {
 	cap := secret()
 	s.launches[hash(cap)] = s.now().Add(5 * time.Minute)
-	return LocalOrigin + "/#launch=" + cap
+	u := LocalOrigin + "/#launch=" + cap
+	if requestID != "" {
+		u += "&request_id=" + requestID
+	}
+	return u
 }
 func (s *Server) reap() {
 	now := s.now()
+	s.reapOpenings(now)
 	for id, p := range s.proofs {
 		if !now.Before(p.Expires) {
 			delete(s.proofs, id)
@@ -220,70 +228,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
-	from := r.Header.Get("Origin")
 	switch r.Method + " " + r.URL.Path {
 	case "GET /v1/status":
-		reply(w, 200, map[string]any{"protocol": 1, "helper_version": s.cfg.Version, "instance_id": s.cfg.Store.View().InstanceID})
+		caps := []string{"pairing-cancel-v1"}
+		if s.cfg.OpenBrowser != nil {
+			caps = append(caps, "pairing-ui-v1", "settings-ui-v1")
+		}
+		reply(w, 200, map[string]any{"protocol": 1, "helper_version": s.cfg.Version, "instance_id": s.cfg.Store.View().InstanceID, "capabilities": caps})
 	case "POST /v1/challenge":
 		s.challenge(w, r)
-	case "POST /v1/pair/request":
-		var body struct {
-			Challenge string `json:"challenge_sha256"`
-		}
-		if !decode(w, r, &body) {
-			return
-		}
-		v, err := hex.DecodeString(body.Challenge)
-		if err != nil || len(v) != 32 {
-			fail(w, 400)
-			return
-		}
-		if len(s.pending) >= 5 || len(s.attempts) >= 5 {
-			fail(w, 429)
-			return
-		}
-		id := secret()
-		expires := s.now().Add(120 * time.Second)
-		s.pending[id] = &pending{Origin: from, Challenge: strings.ToLower(body.Challenge), Expires: expires}
-		s.attempts = append(s.attempts, s.now())
-		reply(w, 201, map[string]any{"request_id": id, "expires_at": expires.UTC().Format(time.RFC3339)})
-	case "POST /v1/pair/claim":
-		var body struct {
-			ID       string `json:"request_id"`
-			Verifier string `json:"verifier"`
-		}
-		if !decode(w, r, &body) {
-			return
-		}
-		p, ok := s.pending[body.ID]
-		if !ok {
-			fail(w, 410)
-			return
-		}
-		if p.Origin != from || subtle.ConstantTimeCompare([]byte(hash(body.Verifier)), []byte(p.Challenge)) != 1 {
-			fail(w, 403)
-			return
-		}
-		if p.SteamID == "" {
-			reply(w, 202, map[string]string{"state": "pending"})
-			return
-		}
-		if p.SteamID != s.cfg.Store.View().SelectedSteamID {
-			delete(s.pending, body.ID)
-			fail(w, 410)
-			return
-		}
-		token := secret()
-		err := s.cfg.Store.Update(func(c *config.Config) error {
-			c.Pairings = append(c.Pairings, config.Pairing{Hash: hash(token), Origin: from, SteamID: p.SteamID})
-			return nil
-		})
-		if err != nil {
-			fail(w, 500)
-			return
-		}
-		delete(s.pending, body.ID)
-		reply(w, 200, map[string]string{"token": token, "steam_id": p.SteamID, "instance_id": s.cfg.Store.View().InstanceID})
+	case "POST /v1/pair/request", "POST /v1/pair/claim", "POST /v1/pair/open", "POST /v1/pair/cancel":
+		s.pairing(w, r)
+	case "GET /v1/settings/open", "POST /v1/settings/open":
+		s.settingsOpen(w, r)
 	case "GET /v1/snapshot", "DELETE /v1/pairing":
 		pair, proof, ok := s.authorized(r)
 		if !ok {

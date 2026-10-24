@@ -46,7 +46,7 @@ func (s *Server) challenge(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if !nonce(body.ClientNonce) || body.BodyHash != hash("") || !((body.Method == "GET" && body.Path == "/v1/snapshot") || (body.Method == "DELETE" && body.Path == "/v1/pairing")) {
+	if !nonce(body.ClientNonce) || body.BodyHash != hash("") || !((body.Method == "GET" && body.Path == "/v1/snapshot") || (body.Method == "DELETE" && body.Path == "/v1/pairing") || ((body.Method == "POST" || body.Method == "GET") && body.Path == "/v1/settings/open")) {
 		fail(w, 400)
 		return
 	}
