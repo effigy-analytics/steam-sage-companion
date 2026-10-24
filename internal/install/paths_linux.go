@@ -24,5 +24,5 @@ func UserPaths(configDir string) (Paths, error) {
 	return Paths{Executable: filepath.Join(home, ".local", "bin", "steam-sage-companion"), Desktop: filepath.Join(data, "applications", "steam-sage-companion.desktop"), ConfigDir: configDir}, nil
 }
 func desktopEntry(paths Paths) []byte {
-	return []byte("# Managed by Steam Sage Companion\n[Desktop Entry]\nType=Application\nName=Steam Sage Companion\nComment=Connect Steam collections to Sage\nExec=" + platform.DesktopExec(paths.Executable, "open", "--config-dir", paths.ConfigDir) + "\nTerminal=false\nCategories=Game;Utility;\n")
+	return []byte("# Managed by Steam Sage Companion\n[Desktop Entry]\nType=Application\nName=Steam Sage Companion\nComment=Connect Steam collections to Sage\nExec=" + platform.DesktopExec(paths.Executable, "launch", "--config-dir", paths.ConfigDir) + "\nTerminal=false\nCategories=Game;Utility;\nActions=Settings;\n\n[Desktop Action Settings]\nName=Companion Settings\nExec=" + platform.DesktopExec(paths.Executable, "settings", "--config-dir", paths.ConfigDir) + "\n")
 }

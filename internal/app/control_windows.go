@@ -6,8 +6,9 @@ import (
 	"io"
 )
 
-func RequestOpen(string) error { return errors.New("Windows activation is not yet verified") }
-func RequestStop(string) error { return errors.New("Windows activation is not yet verified") }
+func RequestReady(string) error { return errors.New("Windows readiness is not yet verified") }
+func RequestOpen(string) error  { return errors.New("Windows activation is not yet verified") }
+func RequestStop(string) error  { return errors.New("Windows activation is not yet verified") }
 func ListenActivation(context.Context, string, func() error, ...func()) (io.Closer, error) {
 	return nil, nil
 }

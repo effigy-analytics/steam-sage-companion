@@ -5,7 +5,7 @@ on:
       version:
         description: Version to build; this workflow does not publish a release
         required: true
-        default: 0.1.0-alpha.1
+        default: 0.1.0-alpha.2
 permissions:
   contents: read
 jobs:
@@ -18,7 +18,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.26.8
-      - run: go test -race ./...
+      - name: Allow test user namespaces on the ephemeral Ubuntu runner
+        # Ubuntu 24.04 AppArmor otherwise denies capabilities needed for uid_map.
+        # Runtime-only on this disposable VM; tests still run as the runner user.
+        # https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: scripts/with-isolated-network.sh go test -race -count=1 -v ./...
       - name: Build allowlisted archives
         env:
           COMPANION_VERSION: ${{ inputs.version }}

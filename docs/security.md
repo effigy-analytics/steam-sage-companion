@@ -43,3 +43,18 @@ same-user software, a compromised Sage origin, or a hostile operating system.
 Do not send credentials or private Steam files with vulnerability reports. This
 alpha has received an independent source review; recorded browser
 tests and remaining platform limits accompany the release candidate.
+
+Guided approval opening does not grant consent. New requests use the same local
+approval plus verifier exchange, including when opened automatically. Retry and
+cancel require the original verifier and exact Origin. Terminal receipts are
+bounded, memory-only authority for the issuing request; late cancellation removes
+only its issued pairing hash, never every pairing at that Origin. Decline and
+cancel prevent subsequent claims. Native dispatch runs outside the server lock
+and validates attempt generation/lifetime before dispatch and before applying
+feedback. Native dispatch cannot establish that any window is visible.
+
+Settings opening uses only authenticated, empty-body POST/GET operations covered
+by the existing mutual HMAC proof. Its successful and throttled responses sign
+status and exact bytes. No private URL, capability, or control token reaches the
+website. Native opening rates are bounded across pairing and settings; terminal
+and settings records expire after 120 seconds and each has a 64-record cap.

@@ -4,6 +4,7 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/config"
 	"github.com/effigy-analytics/steam-sage-companion/internal/platform"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,5 +79,47 @@ func TestControlsFromDownloadUseOwnedInstalledStartupPath(t *testing.T) {
 	}
 	if StartupExecutable(source, paths) != paths.Executable {
 		t.Fatal("controls retained download path")
+	}
+}
+
+func TestDesktopLaunchAndSettingsActionPreserveArguments(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "space ñ % $path")
+	paths := Paths{Executable: filepath.Join(base, "bin", "companion"), Desktop: filepath.Join(base, "apps", "companion.desktop"), ConfigDir: filepath.Join(base, "custom config")}
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$STEAM_SAGE_TEST_ARGS\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(source, paths); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(paths.Desktop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := ""
+	entries := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "[") {
+			section = line
+		}
+		if strings.HasPrefix(line, "Exec=") {
+			entries[section] = strings.TrimPrefix(line, "Exec=")
+		}
+	}
+	for _, tc := range []struct{ section, command string }{{"[Desktop Entry]", "launch"}, {"[Desktop Action Settings]", "settings"}} {
+		value, ok := entries[tc.section]
+		if !ok {
+			t.Fatalf("missing desktop action %s", tc.section)
+		}
+		captured := filepath.Join(t.TempDir(), "args")
+		command := exec.Command("sh", "-c", strings.ReplaceAll(value, "%%", "%"))
+		command.Env = append(os.Environ(), "STEAM_SAGE_TEST_ARGS="+captured)
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("desktop dispatch: %v %s", err, out)
+		}
+		args, _ := os.ReadFile(captured)
+		if string(args) != tc.command+"\n--config-dir\n"+paths.ConfigDir+"\n" {
+			t.Fatalf("desktop arguments changed: %q", args)
+		}
 	}
 }

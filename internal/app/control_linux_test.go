@@ -37,3 +37,23 @@ func TestActivationOnlyOpensForValidSameUserRequest(t *testing.T) {
 	case <-time.After(30 * time.Millisecond):
 	}
 }
+
+func TestReadinessDoesNotOpenControls(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	opened := make(chan bool, 1)
+	listener, err := ListenActivation(ctx, dir, func() error { opened <- true; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err := requestActivation(dir, 'p'); err != nil {
+		t.Fatal("owned readiness probe failed:", err)
+	}
+	select {
+	case <-opened:
+		t.Fatal("readiness minted or opened a control capability")
+	default:
+	}
+}

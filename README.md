@@ -6,18 +6,27 @@ Steam Sage. MIT licensed. Linux x64 alpha. See [downloads and release notes](htt
 Build with Go 1.26 or newer: `go build ./cmd/steam-sage-companion`.
 Run `go run ./cmd/steam-sage-companion inspect` to check discovery. This prints
 counts and read states, never paths, account IDs, collection names or raw data.
-Run tests with `go test ./...` and race checks with `go test -race ./...`.
+Run tests with `scripts/with-isolated-network.sh go test ./...` and race checks
+with `scripts/with-isolated-network.sh go test -race ./...`. The Linux wrapper
+uses a user/network namespace and activates its own loopback interface, so
+fixed-port subprocess tests cannot contact an installed helper. These tests
+supply synthetic subprocess homes and fake browser dispatchers. Without the
+wrapper, fixed-port integration tests are skipped.
 
 Download the Linux x64 alpha from [GitHub Releases](https://github.com/effigy-analytics/steam-sage-companion/releases).
 Verify SHA256SUMS, extract it and run `./install.sh`.
 For a source build, run the executable's `install` command, then open Steam Sage
 Companion from the application launcher. No administrator access is needed.
 
-Run the built helper with `open` (or no arguments) to launch local controls;
-subsequent launches reopen the running instance. `serve --background` runs without
-opening a tab. `--config-dir <directory>` isolates an experimental setup. Local
+Run the built helper with `launch` (or no arguments) to start or reuse the
+background helper and open Sage's companion setup page. Closing the installer,
+launcher, or browser tab leaves the helper running. Choose the launcher's
+**Companion Settings** action, or run `settings` (legacy alias `open`), to open
+local controls directly. `serve --background` remains the foreground service
+command for optional start-at-login. `--config-dir <directory>` isolates an
+experimental setup. Local
 controls let you select an account, approve/revoke a site, choose a custom Steam
-folder, opt into startup, and stop the helper. In Sage choose Connect companion,
+folder, opt into startup, and stop the helper. In Sage choose Connect this browser,
 then approve its exact origin locally. Read the [installation guide](docs/installation.md).
 
 The tool reads known Steam collection locations without changing them. No Steam
@@ -30,7 +39,7 @@ session; the browser will retain its own last successful copy after connection.
 Steam data and browser choices are preserved.
 
 Build release candidates with `python3 scripts/build_release.py --version
-0.1.0-alpha.1` from a clean Git commit. This creates allowlisted archives and
+0.1.0-alpha.2` from a clean Git commit. This creates allowlisted archives and
 checksums, and never publishes them. Dependencies are public and pinned in
 go.mod/go.sum; no Effigy credentials, private packages or user Steam data are
 needed. The runtime is the single Go executable; Go/Python are build tools.
@@ -41,3 +50,16 @@ synthetic examples rather than attaching Steam files or credentials.
 
 Linux x64 is the first validation target. Windows is experimental until actual
 installation and browser tests are recorded; building it alone is insufficient.
+
+
+The alpha.2 guided setup opens a permission page in your default browser. Keep
+using the original Sage tab even when that browser differs. Approval applies only
+to the focused request. Cancel in Sage or choose Not now locally to decline it;
+retrying the opening never grants permission. Sage confirms readiness only after
+it has read the selected account's collections successfully. Alpha.1 remains
+compatible through manual controls; an upgrade is optional for existing usage.
+
+Release preparation is local until public checks and review finish. Publish only
+the Linux archive, source archive from the verified public commit, and checksums.
+The builder's experimental Windows zip is a development artifact, not a supported
+native desktop download. See [alpha.2 release preparation](docs/release-alpha.2.md).

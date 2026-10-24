@@ -40,6 +40,11 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method + " " + r.URL.Path {
 	case "GET /control/state":
+		focus := r.URL.Query().Get("request_id")
+		if len(focus) > 64 {
+			fail(w, 400)
+			return
+		}
 		type item struct {
 			ID      string `json:"request_id"`
 			Origin  string `json:"origin"`
@@ -62,10 +67,41 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 			origins = append(origins, p.Origin)
 		}
 		value := map[string]any{"pending": items, "accounts": accounts, "selected_steam_id": c.SelectedSteamID, "paired_origins": origins, "startup": c.Startup}
+		if focus != "" {
+			type focused struct {
+				ID      string `json:"request_id"`
+				Origin  string `json:"origin"`
+				Expires string `json:"expires_at"`
+				State   string `json:"state"`
+			}
+			if p := s.pending[focus]; p != nil {
+				state := "pending"
+				if p.SteamID != "" {
+					state = "approved"
+				}
+				value["focused_request"] = focused{focus, p.Origin, p.Expires.UTC().Format(time.RFC3339), state}
+			} else if rec := s.receipts[focus]; rec != nil {
+				value["focused_request"] = focused{focus, rec.Origin, rec.RequestExpires.UTC().Format(time.RFC3339), rec.State}
+			}
+		}
 		if c.SelectedSteamID != "" {
 			value["source"] = s.provider.Snapshot(c.SelectedSteamID)
 		}
 		reply(w, 200, value)
+	case "POST /control/decline":
+		var body struct {
+			ID string `json:"request_id"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		p, ok := s.pending[body.ID]
+		if !ok {
+			fail(w, 410)
+			return
+		}
+		s.finishPairing(body.ID, p, "declined", "")
+		reply(w, 200, map[string]bool{"declined": true})
 	case "POST /control/approve":
 		var body struct {
 			ID string `json:"request_id"`

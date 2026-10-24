@@ -1,1 +1,45 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Steam Sage Companion</title><link rel="stylesheet" href="/style.css"><script src="/control.js" defer></script></head><body><main><p class="eyebrow">Steam Sage Companion</p><h1>Your library, connected.</h1><p>Read your Steam collections automatically. Your Steam files stay unchanged. Sage receives collection memberships through this computer; recommendation requests send relevant game IDs to Sage.</p><p id="message" role="status">Open the companion from its installed shortcut to manage this connection.</p><section id="controls" hidden><h2>Steam account</h2><div id="accounts"></div><button id="choose">Find Steam elsewhere</button><details><summary>Enter a custom Steam installation folder</summary><label>Steam folder <input id="root" type="text" placeholder="Full installation folder"></label><button id="root-save">Use this folder</button></details><p id="freshness"></p><h2>Connection requests</h2><div id="pending"></div><h2>Connected sites</h2><div id="paired"></div><label><input id="startup" type="checkbox">Start the companion when I sign in to this computer</label><p><a href="https://steam-sage.effigy-analytics.com/companion" target="_blank" rel="noreferrer">Open Steam Sage</a></p><button id="stop">Stop companion</button></section><p class="muted">Same-computer connection. No Steam password or API key. Cross-device sync is not enabled.</p></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steam Sage Companion</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/control.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Steam Sage Companion · On this computer</p>
+  <h1 id="title">Companion settings</h1>
+  <p id="message" role="status">Open Companion Settings from the application menu to manage this connection.</p>
+  <section id="controls" hidden>
+    <section id="approval" class="card" aria-labelledby="approval-title" hidden>
+      <p class="eyebrow">One-time permission</p>
+      <h2 id="approval-title">Allow access to your collections?</h2>
+      <p id="request-origin" class="site"></p>
+      <p id="permission-scope">This site can read collections for the Steam account you select on this computer. Your Steam files stay unchanged. Recommendation requests send relevant game IDs to Sage. No Steam password or API key is needed.</p>
+      <p id="request-state" role="status"></p>
+      <div id="approval-actions"><button id="allow" class="primary">Allow collections</button><button id="decline">Not now</button></div>
+      <p id="return-instructions">After allowing, return to the original Sage tab where you chose Connect. It updates automatically, even if this page opened in a different browser.</p>
+    </section>
+    <section id="library" aria-labelledby="account-title">
+      <h2 id="account-title">Steam account</h2>
+      <div id="accounts"></div>
+      <p id="freshness" role="status"></p>
+      <label class="startup"><input id="startup" type="checkbox"> Start Companion when I sign in to this computer <span class="muted">(optional)</span></label>
+    </section>
+    <details id="settings">
+      <summary>Companion settings and Steam folder recovery</summary>
+      <p>If collections could not be read, check that Steam is installed and choose its installation folder. Companion will try reading it again.</p>
+      <button id="choose">Find Steam elsewhere</button>
+      <details><summary>Enter a custom Steam installation folder</summary><label for="root">Steam folder</label><input id="root" type="text" placeholder="Full installation folder"><button id="root-save">Use this folder</button></details>
+      <section id="pending-section"><h2>Connection requests</h2><div id="pending"></div></section>
+      <h2>Connected sites</h2><div id="paired"></div>
+      <button id="stop">Stop Companion</button>
+    </details>
+    <p class="muted">You can close this page. Companion keeps running. Start at login is your choice.</p>
+  </section>
+  <p class="muted">Same-computer connection. Cross-device sync is not enabled.</p>
+</main>
+</body>
+</html>

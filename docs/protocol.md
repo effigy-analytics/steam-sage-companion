@@ -47,3 +47,60 @@ Neither timestamp claims Steam Cloud freshness.
 Synthetic wire examples are in protocol/fixtures. Sage's matching validator and
 fixtures live in its own repository; fixture parity is checked before delivery.
 This protocol is a local permission mechanism, not Steam OpenID authentication.
+
+Guided setup adds optional status `capabilities` (at most 16 strings, each at most
+64 UTF-8 bytes). Known values are `pairing-ui-v1`, `pairing-cancel-v1`, and
+`settings-ui-v1`; missing means alpha.1 manual behavior and bounded unknown names
+are ignored. Native UI capabilities are absent when no browser dispatcher is
+configured. Snapshot protocol and successful claim shapes remain version 1.
+
+Pair request and HTTP202 pending claim replies may include `approval_ui`:
+`manual`, `opening`, `dispatched`, or `failed`. With native dispatch configured,
+a newly accepted pair request schedules its focused approval opening automatically
+when opening limits permit; otherwise manual approval remains available. Dispatched
+means an OS launch request, never proof of a visible or focused browser window.
+The original pairing tab and its verifier remain authoritative.
+
+POST /v1/pair/open and POST /v1/pair/cancel take `{request_id, verifier}` and
+check exact Origin plus constant-time SHA-256 verifier equality. Open retries a
+live request and returns HTTP202 `{state:"opening"}`. Cancel returns HTTP200
+`{cancelled:true}` and is idempotent while its receipt lives. Wrong verifier is
+403; unknown/expired request is 410. Verified claims after decline/cancel return
+410 with `error:"declined"` / `"cancelled"`; ordinary expiry is `"expired"`.
+Private local POST /control/decline takes `{request_id}` under the existing
+control credential. Nil dispatch uses HTTP202 `{state:"manual"}` for open calls.
+
+Requests live 120 seconds with at most five pending and five new requests per
+minute. Reopening does not extend expiry. Native opening attempts have a five
+second per-request/per-pair cooldown and a shared five-per-minute limit, including
+settings. HTTP429 includes `retry_after_ms`, bounded to 1..60000. In-memory terminal
+receipts are capped at 64 for 120 seconds after claim/decline/cancel; reuse never
+extends that lifetime. A claim receipt can withdraw only its own issued grant,
+preserving older and newer pairings. Receipts and raw verifiers are not persisted.
+
+Authenticated POST /v1/settings/open (empty body) schedules opening and returns
+signed HTTP202 `{state:"opening"}`. GET on the same path returns signed current
+`{state:<approval UI>}`. Exactly those method/path pairs join the HMAC operation
+allowlist; empty-body binding, one-use proofs, and status/raw-response-byte proofs
+remain mandatory. Errors after authorization are signed. Opening records are
+memory-only, capped at 64 with 120-second lifetimes, bound to pairing and attempt
+generation. Late callbacks cannot mutate newer attempts. Clients poll settings
+for at most two seconds, then offer manual-opening guidance without asserting
+window visibility. Anonymous or unsigned failures cannot clear browser bindings.
+
+Native dispatch callbacks run outside the server mutex. Their private fragment
+uses `#launch=<one-use-capability>&request_id=<focused-request-id>` for pairing;
+settings use only `#launch=<one-use-capability>`. These URLs and control tokens
+are never included in website API responses. Focused pages must remove the
+fragment immediately, and cancelled/expired focus must never approve a different
+request. A page already dispatched before cancellation may remain open.
+
+
+## alpha.2 acceptance and compatibility
+
+Guided UI extensions do not change snapshot protocol 1. Alpha.1 omits capabilities
+and remains usable via manual controls. A first successful matching source read,
+rather than a claim or installation acknowledgement, establishes Sage setup
+readiness. Native dispatch must retain exact request focus across separate browser
+contexts and stale callbacks. See [release preparation](release-alpha.2.md) for
+verification and publication boundaries.

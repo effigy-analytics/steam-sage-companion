@@ -25,3 +25,14 @@ by Sage or the browser's site-data controls. No cross-device sync is enabled.
 Logs and the `inspect` command use counts/read states rather than account IDs,
 collection contents, source paths, tokens or launch URLs. Please do not attach
 your actual Steam JSON, settings file, control URL or tokens to a public issue.
+
+
+Guided opening is a request to the operating system's default browser. Its private,
+one-use local launch capability is removed from the approval page address as soon
+as the page opens. The Sage website never receives that URL or a control token.
+The approval page may use a separate browser profile; permission remains bound to
+the original Sage origin and selected account. Approval and first-read readiness
+are distinct. Cancel/decline receipts hold only verifier and issued-grant hashes
+in memory for at most 120 seconds (64 records); they are not persisted. Closing
+approval alone grants nothing and does not stop Companion. Optional startup stays
+a local choice and upgrades preserve existing consent and settings.
