@@ -32,10 +32,16 @@ func sameUser(conn *net.UnixConn) bool {
 	}
 	return credErr == nil && cred != nil && cred.Uid == uint32(os.Getuid())
 }
+func RequestReady(configDir string) error {
+	return requestActivationTimeout(configDir, 'p', 40*time.Millisecond)
+}
 func RequestOpen(configDir string) error { return requestActivation(configDir, 'o') }
 func RequestStop(configDir string) error { return requestActivation(configDir, 's') }
 func requestActivation(configDir string, command byte) error {
-	conn, err := net.DialTimeout("unix", activationName(configDir), time.Second)
+	return requestActivationTimeout(configDir, command, 2*time.Second)
+}
+func requestActivationTimeout(configDir string, command byte, timeout time.Duration) error {
+	conn, err := net.DialTimeout("unix", activationName(configDir), timeout)
 	if err != nil {
 		return errors.New("no running companion for these settings")
 	}
@@ -44,13 +50,13 @@ func requestActivation(configDir string, command byte) error {
 	if !ok || !sameUser(u) {
 		return errors.New("could not verify running companion")
 	}
-	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err = conn.Write([]byte{command}); err != nil {
 		return err
 	}
 	var response [1]byte
 	if _, err = io.ReadFull(conn, response[:]); err != nil || response[0] != 'k' {
-		return errors.New("could not open companion controls")
+		return errors.New("companion activation was not acknowledged")
 	}
 	return nil
 }
@@ -70,6 +76,9 @@ func ListenActivation(ctx context.Context, dir string, open func() error, stop .
 			if sameUser(conn) {
 				var value [1]byte
 				if _, err := io.ReadFull(conn, value[:]); err == nil {
+					if value[0] == 'p' {
+						conn.Write([]byte{'k'})
+					}
 					if value[0] == 'o' && open() == nil {
 						conn.Write([]byte{'k'})
 					}

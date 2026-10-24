@@ -6,16 +6,25 @@ Steam Sage. MIT licensed. Linux x64 alpha. See [downloads and release notes](htt
 Build with Go 1.26 or newer: `go build ./cmd/steam-sage-companion`.
 Run `go run ./cmd/steam-sage-companion inspect` to check discovery. This prints
 counts and read states, never paths, account IDs, collection names or raw data.
-Run tests with `go test ./...` and race checks with `go test -race ./...`.
+Run tests with `scripts/with-isolated-network.sh go test ./...` and race checks
+with `scripts/with-isolated-network.sh go test -race ./...`. The Linux wrapper
+uses a user/network namespace and activates its own loopback interface, so
+fixed-port subprocess tests cannot contact an installed helper. These tests
+supply synthetic subprocess homes and fake browser dispatchers. Without the
+wrapper, fixed-port integration tests are skipped.
 
 Download the Linux x64 alpha from [GitHub Releases](https://github.com/effigy-analytics/steam-sage-companion/releases).
 Verify SHA256SUMS, extract it and run `./install.sh`.
 For a source build, run the executable's `install` command, then open Steam Sage
 Companion from the application launcher. No administrator access is needed.
 
-Run the built helper with `open` (or no arguments) to launch local controls;
-subsequent launches reopen the running instance. `serve --background` runs without
-opening a tab. `--config-dir <directory>` isolates an experimental setup. Local
+Run the built helper with `launch` (or no arguments) to start or reuse the
+background helper and open Sage's companion setup page. Closing the installer,
+launcher, or browser tab leaves the helper running. Choose the launcher's
+**Companion Settings** action, or run `settings` (legacy alias `open`), to open
+local controls directly. `serve --background` remains the foreground service
+command for optional start-at-login. `--config-dir <directory>` isolates an
+experimental setup. Local
 controls let you select an account, approve/revoke a site, choose a custom Steam
 folder, opt into startup, and stop the helper. In Sage choose Connect companion,
 then approve its exact origin locally. Read the [installation guide](docs/installation.md).

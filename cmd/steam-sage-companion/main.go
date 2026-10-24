@@ -19,6 +19,7 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/bridge"
 	"github.com/effigy-analytics/steam-sage-companion/internal/config"
 	"github.com/effigy-analytics/steam-sage-companion/internal/install"
+	"github.com/effigy-analytics/steam-sage-companion/internal/launch"
 	"github.com/effigy-analytics/steam-sage-companion/internal/platform"
 	"github.com/effigy-analytics/steam-sage-companion/internal/steam"
 )
@@ -27,13 +28,16 @@ var version = "0.1.0-alpha.1"
 
 func commandArgs(args []string) (string, []string) {
 	if len(args) == 0 {
-		return "open", nil
+		return "launch", nil
 	}
 	return args[0], args[1:]
 }
 
 func main() {
 	command, rest := commandArgs(os.Args[1:])
+	if command == "settings" {
+		command = "open"
+	}
 	if command == "install" || command == "uninstall" {
 		flags := flag.NewFlagSet(command, flag.ExitOnError)
 		base, err := os.UserConfigDir()
@@ -73,7 +77,7 @@ func main() {
 		}
 		return
 	}
-	if command == "serve" || command == "open" {
+	if command == "serve" || command == "open" || command == "launch" {
 		flags := flag.NewFlagSet("serve", flag.ExitOnError)
 		base, err := os.UserConfigDir()
 		if err != nil {
@@ -93,6 +97,22 @@ func main() {
 			}
 			origins = []string{*allowOrigin}
 		}
+		if command == "launch" {
+			executable, err := os.Executable()
+			if err == nil {
+				if paths, e := install.UserPaths(*dir); e == nil {
+					executable = install.StartupExecutable(executable, paths)
+				}
+			}
+			if err == nil {
+				err = launch.Run(launch.Options{Executable: executable, ConfigDir: *dir, ExtraOrigin: *allowOrigin})
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		if command == "open" && app.RequestOpen(*dir) == nil {
 			return
 		}
@@ -109,7 +129,7 @@ func main() {
 		return
 	}
 	if len(os.Args) != 2 || os.Args[1] != "inspect" {
-		fmt.Fprintln(os.Stderr, "Usage: steam-sage-companion open | serve | inspect | install | uninstall [--purge] | version")
+		fmt.Fprintln(os.Stderr, "Usage: steam-sage-companion launch | settings | open | serve | inspect | install | uninstall [--purge] | version")
 		os.Exit(2)
 	}
 	accounts, err := steam.Discover(platform.SteamRoots())
@@ -173,7 +193,7 @@ func serveWithOpen(parent context.Context, dir string, extraOrigins []string, op
 	if paths, err := install.UserPaths(dir); err == nil {
 		executable = install.StartupExecutable(executable, paths)
 	}
-	bridgeServer := bridge.New(bridge.Config{Store: store, Version: version, ExtraOrigins: extraOrigins, Accounts: application.Accounts, OnSelect: application.SelectAccount, OnSetRoot: application.AddRoot, OnStop: cancel, OnStartup: func(enabled bool) error {
+	bridgeServer := bridge.New(bridge.Config{OpenBrowser: platform.OpenBrowserObserved, Store: store, Version: version, ExtraOrigins: extraOrigins, Accounts: application.Accounts, OnSelect: application.SelectAccount, OnSetRoot: application.AddRoot, OnStop: cancel, OnStartup: func(enabled bool) error {
 		if err := platform.SetStartup(enabled, executable, dir); err != nil {
 			return err
 		}

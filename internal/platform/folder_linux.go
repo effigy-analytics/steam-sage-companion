@@ -18,11 +18,3 @@ func ChooseSteamRoot(ctx context.Context) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
-func OpenBrowser(url string) error {
-	command := exec.Command("xdg-open", url)
-	if err := command.Start(); err != nil {
-		return err
-	}
-	go command.Wait()
-	return nil
-}
