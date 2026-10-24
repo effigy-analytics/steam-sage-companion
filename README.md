@@ -1,14 +1,15 @@
 # Steam Sage Companion
 
 An optional, read-only local connection between Steam library collections and
-Steam Sage. MIT licensed. Linux x64 alpha candidate; source review complete, publication pending.
+Steam Sage. MIT licensed. Linux x64 alpha. See [downloads and release notes](https://github.com/effigy-analytics/steam-sage-companion/releases) for published builds.
 
 Build with Go 1.26 or newer: `go build ./cmd/steam-sage-companion`.
 Run `go run ./cmd/steam-sage-companion inspect` to check discovery. This prints
 counts and read states, never paths, account IDs, collection names or raw data.
 Run tests with `go test ./...` and race checks with `go test -race ./...`.
 
-For a prepared Linux archive, verify SHA256SUMS, extract it and run `./install.sh`.
+Download the Linux x64 alpha from [GitHub Releases](https://github.com/effigy-analytics/steam-sage-companion/releases).
+Verify SHA256SUMS, extract it and run `./install.sh`.
 For a source build, run the executable's `install` command, then open Steam Sage
 Companion from the application launcher. No administrator access is needed.
 
