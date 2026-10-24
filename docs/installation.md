@@ -72,3 +72,29 @@ launching the generated desktop startup entry succeeded. Firefox 151 has only
 an HTTPS-to-loopback transport check. Edge and Safari are untested, and WebKit
 could not launch without additional host libraries. These limits do not imply
 support for the untested combinations or a deployed-app end-to-end result.
+
+
+## Guided setup in alpha.2
+
+The installer returns after starting the installed background copy and asking the
+OS to open `https://steam-sage.effigy-analytics.com/companion?installed=1`. This
+acknowledgement does not prove installation or contact the helper. Closing the
+terminal or a browser page leaves Companion running. A second launch reuses the
+owned helper. A conflicting port produces a diagnosis without stopping its owner.
+
+In Sage, explicitly choose **Connect this browser**. The OS may open the approval
+page in a different browser. Keep the original Sage tab open. Select the intended
+Steam account and choose **Allow collections** only for that exact site request.
+If the page is closed or missing, choose **Show approval page again** in Sage, or
+use the launcher's **Companion Settings** action. Dispatch reports an OS request,
+not proof that a window is visible. **Not now** declines the focused request;
+**Cancel connection** in Sage withdraws that attempt, including a racing claim,
+without revoking another connection.
+
+A successful first collection read completes setup. Source errors offer retry and
+settings recovery; empty and unsupported collections are explained honestly.
+Existing alpha.1 installations keep working through manual approval. Upgrades
+preserve startup choice, selected account/root, source IDs, pairings, and owned
+installation metadata. Browser preferences remain in the original Sage browser;
+opening approval in another browser does not transfer them. Start at login stays
+off until chosen explicitly in local settings.

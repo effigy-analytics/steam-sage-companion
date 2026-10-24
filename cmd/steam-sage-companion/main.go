@@ -24,7 +24,7 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/steam"
 )
 
-var version = "0.1.0-alpha.1"
+var version = "0.1.0-alpha.2"
 
 func commandArgs(args []string) (string, []string) {
 	if len(args) == 0 {

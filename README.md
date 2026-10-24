@@ -26,7 +26,7 @@ local controls directly. `serve --background` remains the foreground service
 command for optional start-at-login. `--config-dir <directory>` isolates an
 experimental setup. Local
 controls let you select an account, approve/revoke a site, choose a custom Steam
-folder, opt into startup, and stop the helper. In Sage choose Connect companion,
+folder, opt into startup, and stop the helper. In Sage choose Connect this browser,
 then approve its exact origin locally. Read the [installation guide](docs/installation.md).
 
 The tool reads known Steam collection locations without changing them. No Steam
@@ -39,7 +39,7 @@ session; the browser will retain its own last successful copy after connection.
 Steam data and browser choices are preserved.
 
 Build release candidates with `python3 scripts/build_release.py --version
-0.1.0-alpha.1` from a clean Git commit. This creates allowlisted archives and
+0.1.0-alpha.2` from a clean Git commit. This creates allowlisted archives and
 checksums, and never publishes them. Dependencies are public and pinned in
 go.mod/go.sum; no Effigy credentials, private packages or user Steam data are
 needed. The runtime is the single Go executable; Go/Python are build tools.
@@ -50,3 +50,16 @@ synthetic examples rather than attaching Steam files or credentials.
 
 Linux x64 is the first validation target. Windows is experimental until actual
 installation and browser tests are recorded; building it alone is insufficient.
+
+
+The alpha.2 guided setup opens a permission page in your default browser. Keep
+using the original Sage tab even when that browser differs. Approval applies only
+to the focused request. Cancel in Sage or choose Not now locally to decline it;
+retrying the opening never grants permission. Sage confirms readiness only after
+it has read the selected account's collections successfully. Alpha.1 remains
+compatible through manual controls; an upgrade is optional for existing usage.
+
+Release preparation is local until public checks and review finish. Publish only
+the Linux archive, source archive from the verified public commit, and checksums.
+The builder's experimental Windows zip is a development artifact, not a supported
+native desktop download. See [alpha.2 release preparation](docs/release-alpha.2.md).

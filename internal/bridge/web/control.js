@@ -17,11 +17,14 @@
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "Open Companion Settings from the application menu to manage this connection." : response.status === 410 ? "This request has ended. Return to your original Sage tab to connect again." : "That action could not finish. Try again, or check Companion settings.");
     return response.json();
   };
+  const busy = new WeakSet();
   const bindAction = (button, fn) => {
     button.onclick = async () => {
+      if (busy.has(button)) return;
+      busy.add(button);
       button.disabled = true;
       try {await fn(); message.textContent = "";} catch (e) {message.textContent = e.message;}
-      finally {button.disabled = false; await refresh().catch(e => {message.textContent = e.message;});}
+      finally {busy.delete(button);button.disabled = false; await refresh().catch(e => {message.textContent = e.message;});}
     };
   };
   const action = (text, fn) => {
@@ -61,7 +64,7 @@
     };
     $("#request-state").textContent = explanations[lifecycle] || explanations.expired;
     $("#approval-actions").hidden = lifecycle !== "pending";
-    $("#allow").disabled = !state.selected_steam_id;
+    $("#allow").disabled = busy.has($("#allow")) || !state.selected_steam_id;
     $("#approval-title").textContent = lifecycle === "pending" ? "Allow access to your collections?" : "Connection request";
   }
   async function refresh() {

@@ -14,6 +14,9 @@ if (process.env.STEAM_SAGE_ISOLATED_NETWORK !== '1') throw new Error('Use script
     const page = await context.newPage();
     let state = {accounts:[{id:'synthetic-account',steam_id:'76561198000000001',location:'Steam',selected:true}],pending:[{request_id:'focused',origin:'https://steam-sage.effigy-analytics.com',expires_at:'2099-01-01T00:00:00Z'},{request_id:'other',origin:'https://another.example',expires_at:'2099-01-01T00:00:00Z'}],paired_origins:[],startup:true,selected_steam_id:'76561198000000001',source:{protocol:1,state:'ready',attempted_at:'2026-10-24T00:00:00Z',error:null,snapshot:{protocol:1,instance_id:'synthetic',source_id:'synthetic',steam_id:'76561198000000001',revision:'1',read_at:'2026-10-24T00:00:00Z',collections:[]}},focused_request:{request_id:'focused',origin:'https://steam-sage.effigy-analytics.com',expires_at:'2099-01-01T00:00:00Z',state:'pending'}};
     const actions = [];
+    let releaseAction;
+    const delayedAction = () => new Promise(resolve => {releaseAction = resolve;});
+    const delay = {enabled:false, release:() => releaseAction()};
     await page.addInitScript(() => {window.setInterval = fn => {window.poll = fn;return 1;};});
     await page.route('**/*', async route => {
       const u = new URL(route.request().url());
@@ -24,11 +27,11 @@ if (process.env.STEAM_SAGE_ISOLATED_NETWORK !== '1') throw new Error('Use script
         if (u.searchParams.get('request_id') !== (focused ? 'focused' : null)) throw new Error('Focused request not bound to private read');
         return route.fulfill({json:state});
       }
-      if (u.pathname.startsWith('/control/')) {actions.push({endpoint:u.pathname,...route.request().postDataJSON()}); return route.fulfill({json:{saved:true}});}
+      if (u.pathname.startsWith('/control/')) {if(delay.enabled) await delayedAction(); actions.push({endpoint:u.pathname,...route.request().postDataJSON()}); return route.fulfill({json:{saved:true}});}
       const file = u.pathname === '/' ? 'index.html' : u.pathname.slice(1);
       return route.fulfill({body:fs.readFileSync(assets+'/'+file),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
     });
-    try {await page.goto('http://127.0.0.1:43871/#launch=synthetic-launch'+(focused?'&request_id=focused':''));await page.waitForFunction(()=>window.poll);await fn(page,state,actions);console.log('PASS '+name);} catch(e) {failures.push(name+': '+e.message);console.log('FAIL '+name+': '+e.message);} finally {await context.close();}
+    try {await page.goto('http://127.0.0.1:43871/#launch=synthetic-launch'+(focused?'&request_id=focused':''));await page.waitForFunction(()=>window.poll);await fn(page,state,actions,delay);console.log('PASS '+name);} catch(e) {failures.push(name+': '+e.message);console.log('FAIL '+name+': '+e.message);} finally {await context.close();}
   }
   await run('exact focused approval and lifecycle', async(page,state,actions)=>{
     const allow = page.getByRole('button',{name:'Allow collections',exact:true});
@@ -44,6 +47,17 @@ if (process.env.STEAM_SAGE_ISOLATED_NETWORK !== '1') throw new Error('Use script
     if(actions.at(-1)?.request_id!=='focused' || actions.at(-1)?.endpoint!=='/control/approve') throw new Error('Approved another request');
     for(const terminal of ['approved','claimed','cancelled','declined','expired']) {state.focused_request.state=terminal;state.pending=state.pending.filter(p=>p.request_id!=='focused');await page.evaluate(()=>window.poll());if(await allow.isVisible()) throw new Error('Terminal request still actionable: '+terminal);if(!await page.locator('#approval').textContent().then(t=>t.toLowerCase().includes(terminal==='claimed'?'connected':terminal==='approved'?'approved':terminal))) throw new Error('Missing terminal explanation: '+terminal);}
     delete state.focused_request;await page.evaluate(()=>window.poll());if(await allow.isVisible()) throw new Error('Missing focused request switched to other request');
+  });
+  await run('approval stays disabled through polling while its response is pending',async(page,state,actions,delay)=>{
+    delay.enabled=true;
+    const allow=page.locator('#allow');
+    const request=page.waitForRequest(r=>r.url().endsWith('/control/approve'));
+    await allow.click();await request;
+    await page.evaluate(()=>window.poll());
+    if(!await allow.isDisabled()) throw new Error('Polling reenabled an approval with a pending response');
+    delay.release();
+    await page.waitForFunction(()=>!document.querySelector('#allow').disabled);
+    if(actions.length!==1||actions[0].request_id!=='focused') throw new Error('Busy action lost exact-request binding');
   });
   await run('polling retains existing approval keyboard focus',async(page)=>{const allow=page.getByRole('button',{name:/Allow/}).first();await allow.focus();await page.evaluate(()=>window.poll());await page.evaluate(()=>window.poll());if(!await allow.evaluate(el=>el===document.activeElement)) throw new Error('Approval polling lost keyboard focus');});
   await run('missing selection versus unreadable selected source',async(page,state)=>{state.source={protocol:1,state:'unavailable',attempted_at:'2026-10-24T00:00:00Z',error:'unreadable',snapshot:null};await page.evaluate(()=>window.poll());const selected=await page.locator('#freshness').textContent();if(/choose an account/i.test(selected)||!/(could not|couldn.t|unable).*read/i.test(selected)) throw new Error('Unreadable selected data incorrectly described as missing selection');state.selected_steam_id='';delete state.source;await page.evaluate(()=>window.poll());if(!/choose an account/i.test(await page.locator('#freshness').textContent())) throw new Error('Missing account selection not explained');});

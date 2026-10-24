@@ -87,13 +87,13 @@ func TestSettingsGenerationAndSharedOpeningBudget(t *testing.T) {
 	dispatcher(t, s, func(_ string, exited func(error)) error { callbacks <- exited; return nil })
 	auth, _ := challenge(t, s, token, "POST", "/v1/settings/open")
 	signedRequest(s, "POST", "/v1/settings/open", auth)
-	old := <-callbacks
+	old := receiveOpening(t, callbacks)
 	s.mu.Lock()
 	now = now.Add(5 * time.Second)
 	s.mu.Unlock()
 	auth, _ = challenge(t, s, token, "POST", "/v1/settings/open")
 	signedRequest(s, "POST", "/v1/settings/open", auth)
-	latest := <-callbacks
+	latest := receiveOpening(t, callbacks)
 	latest(nil)
 	old(errors.New("stale exit"))
 	auth, ctx := challenge(t, s, token, "GET", "/v1/settings/open")
@@ -109,7 +109,7 @@ func TestSettingsGenerationAndSharedOpeningBudget(t *testing.T) {
 		if w := pairAction(s, "open", id, v); w.Code != 202 {
 			t.Fatal(w.Code)
 		}
-		<-callbacks
+		receiveOpening(t, callbacks)
 	}
 	s.mu.Lock()
 	now = now.Add(5 * time.Second)
@@ -149,5 +149,19 @@ func TestSettingsRecordCap(t *testing.T) {
 	defer s.mu.Unlock()
 	if len(s.settings) != 64 || s.settings["0"] != nil || s.settings[hash(token)] == nil {
 		t.Fatal("opening records failed bounded oldest eviction")
+	}
+}
+
+// Bound asynchronous dispatcher observations so a regression fails this test,
+// rather than hanging the entire suite until its outer timeout.
+func receiveOpening[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(time.Second):
+		t.Fatal("browser dispatch observation timed out")
+		var zero T
+		return zero
 	}
 }

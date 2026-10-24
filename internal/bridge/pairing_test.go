@@ -123,12 +123,12 @@ func TestLateOpenCannotRetargetNewRequest(t *testing.T) {
 	urls := make(chan string, 2)
 	dispatcher(t, s, func(u string, exited func(error)) error { urls <- u; callbacks <- exited; return nil })
 	pairAction(s, "open", id, v)
-	old := <-callbacks
-	u := <-urls
+	old := receiveOpening(t, callbacks)
+	u := receiveOpening(t, urls)
 	pairAction(s, "cancel", id, v)
 	newID, newV := pairing(t, s)
-	<-callbacks
-	newURL := <-urls
+	receiveOpening(t, callbacks)
+	newURL := receiveOpening(t, urls)
 	old(errors.New("old failure"))
 	if strings.Contains(u, newID) || !strings.Contains(newURL, newID) {
 		t.Fatal("request focus retargeted")

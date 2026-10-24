@@ -94,3 +94,13 @@ settings use only `#launch=<one-use-capability>`. These URLs and control tokens
 are never included in website API responses. Focused pages must remove the
 fragment immediately, and cancelled/expired focus must never approve a different
 request. A page already dispatched before cancellation may remain open.
+
+
+## alpha.2 acceptance and compatibility
+
+Guided UI extensions do not change snapshot protocol 1. Alpha.1 omits capabilities
+and remains usable via manual controls. A first successful matching source read,
+rather than a claim or installation acknowledgement, establishes Sage setup
+readiness. Native dispatch must retain exact request focus across separate browser
+contexts and stale callbacks. See [release preparation](release-alpha.2.md) for
+verification and publication boundaries.
