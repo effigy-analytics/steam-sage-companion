@@ -557,13 +557,84 @@ func TestInstallerTerminalClosurePreservesBrowserDispatch(t *testing.T) {
 	os.WriteFile(filepath.Join(packageDir, "steam-sage-companion"), binary, 0700)
 	script, _ := os.ReadFile("../../packaging/linux/install.sh")
 	os.WriteFile(filepath.Join(packageDir, "install.sh"), script, 0700)
-	terminal := exec.Command("script", "-q", "-e", "-c", `./install.sh --config-dir "$STEAM_SAGE_TEST_CONFIG"`, "/dev/null")
-	terminal.Dir, terminal.Env = packageDir, append(f.env, "STEAM_SAGE_TEST_CONFIG="+f.cfg)
-	if out, err := terminal.CombinedOutput(); err != nil {
-		t.Fatalf("installer in terminal: %v %s", err, out)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if out, err := runInstallerTerminal(ctx, packageDir, append(f.env, "STEAM_SAGE_TEST_CONFIG="+f.cfg), `./install.sh --config-dir "$STEAM_SAGE_TEST_CONFIG"`); err != nil {
+		t.Fatalf("installer in terminal: %v (deadline: %v) %s", err, ctx.Err(), out)
 	}
 	if err := app.RequestReady(f.cfg); err != nil {
 		t.Fatal("helper did not survive closed terminal:", err)
 	}
 	f.sageOnly(t)
+}
+
+// Keep failure output useful without allowing a stalled installer to grow memory.
+type terminalOutput struct{ buffer bytes.Buffer }
+
+func (out *terminalOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := 64*1024 - out.buffer.Len(); remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		_, _ = out.buffer.Write(p)
+	}
+	return n, nil
+}
+
+func runInstallerTerminal(ctx context.Context, dir string, env []string, command string) ([]byte, error) {
+	terminal := exec.CommandContext(ctx, "script", "-q", "-e", "-c", command, "/dev/null")
+	terminal.Dir, terminal.Env = dir, env
+	terminal.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
+	// script handles TERM by closing its PTY and terminating its shell. Signal
+	// only our new process group; the detached synthetic helper has its own cleanup.
+	terminal.Cancel = func() error { return unix.Kill(-terminal.Process.Pid, unix.SIGTERM) }
+	terminal.WaitDelay = time.Second
+	var out terminalOutput
+	terminal.Stdout, terminal.Stderr = &out, &out
+	err := terminal.Run()
+	return out.buffer.Bytes(), err
+}
+
+func TestInstallerTerminalDeadlineBoundsOutputAndStopsOwnedShell(t *testing.T) {
+	requireIsolatedNetwork(t)
+	home := t.TempDir()
+	tools := filepath.Join(home, "tools")
+	if err := os.MkdirAll(tools, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tools, "xdg-open"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+home, "XDG_DATA_HOME="+home, "XDG_CACHE_HOME="+home, "XDG_RUNTIME_DIR="+home, "PATH="+tools+":"+os.Getenv("PATH"), "DBUS_SESSION_BUS_ADDRESS=disabled:", "DISPLAY=", "WAYLAND_DISPLAY=", "SHELL=/bin/sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	out, err := runInstallerTerminal(ctx, home, env, `echo $$ > owned-shell; printf 'synthetic stalled installer\n'; /usr/bin/head -c 131072 /dev/zero; exec /bin/sleep 30`)
+	if err == nil || ctx.Err() != context.DeadlineExceeded {
+		t.Fatalf("stalled terminal was not stopped: %v / %v", err, ctx.Err())
+	}
+	if time.Since(started) > 3*time.Second {
+		t.Fatal("terminal deadline did not bound completion")
+	}
+	if len(out) != 64*1024 || !bytes.Contains(out, []byte("synthetic stalled installer")) {
+		t.Fatalf("failure output not bounded/useful: %d bytes", len(out))
+	}
+	raw, err := os.ReadFile(filepath.Join(home, "owned-shell"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		state, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if os.IsNotExist(err) || bytes.Contains(state, []byte(") Z ")) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("owned PTY shell survived cancellation")
 }
