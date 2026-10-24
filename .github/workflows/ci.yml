@@ -24,6 +24,14 @@ jobs:
         run: test -z "$(gofmt -l cmd internal)"
       - run: go mod verify
       - run: go vet ./...
+      - name: Allow test user namespaces on the ephemeral Ubuntu runner
+        if: runner.os == 'Linux'
+        # Ubuntu 24.04 AppArmor otherwise denies capabilities needed for uid_map.
+        # Runtime-only on this disposable VM; tests still run as the runner user.
+        # https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Linux isolated lifecycle and unit tests
         if: runner.os == 'Linux'
         run: scripts/with-isolated-network.sh go test -count=1 -v ./...
