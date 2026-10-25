@@ -5,27 +5,30 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
-	"github.com/effigy-analytics/steam-sage-companion/internal/app"
 	"github.com/effigy-analytics/steam-sage-companion/internal/platform"
 )
 
 // Run never treats an HTTP listener as proof of an owned companion.
-func Run(options Options) error {
+func Run(options Options) error { return run(options, platform.OpenBrowser) }
+
+func run(options Options, openBrowser func(string) error) error {
 	if !filepath.IsAbs(options.Executable) || !filepath.IsAbs(options.ConfigDir) {
 		return errors.New("launch needs absolute executable and settings paths")
 	}
-	if app.RequestReady(options.ConfigDir) == nil {
-		return openSage()
+	if options.Destination > None {
+		return errors.New("unknown launch destination")
+	}
+	if requestReady(options) == nil {
+		return openDestination(options, openBrowser)
 	}
 	args := []string{"serve", "--background", "--config-dir", options.ConfigDir}
 	if options.ExtraOrigin != "" {
 		args = append(args, "--allow-origin", options.ExtraOrigin)
 	}
 	command := exec.Command(options.Executable, args...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	configureChild(command)
 	// Nil streams detach from the installer's terminal and output pipes.
 	if err := command.Start(); err != nil {
 		return errors.New("cannot start the installed companion; reinstall it and try again")
@@ -40,8 +43,8 @@ func Run(options Options) error {
 		select {
 		case <-exited:
 			// Another simultaneous launch may have won the activation socket.
-			if app.RequestReady(options.ConfigDir) == nil {
-				return openSage()
+			if requestReady(options) == nil {
+				return openDestination(options, openBrowser)
 			}
 			return errors.New("companion could not start; its local port may be occupied or its settings unavailable")
 		case <-timeout.C:
@@ -50,14 +53,23 @@ func Run(options Options) error {
 			<-exited
 			return errors.New("companion did not become ready; check its settings or local port and try again")
 		case <-probes.C:
-			if app.RequestReady(options.ConfigDir) == nil {
-				return openSage()
+			if requestReady(options) == nil {
+				return openDestination(options, openBrowser)
 			}
 		}
 	}
 }
-func openSage() error {
-	if err := platform.OpenBrowser("https://steam-sage.effigy-analytics.com/companion?installed=1"); err != nil {
+func openDestination(options Options, openBrowser func(string) error) error {
+	switch options.Destination {
+	case None:
+		return nil
+	case Settings:
+		if err := requestSettings(options); err != nil {
+			return errors.New("companion is ready, but private settings could not open; try the Companion Settings shortcut again")
+		}
+		return nil
+	}
+	if err := openBrowser("https://steam-sage.effigy-analytics.com/companion?installed=1"); err != nil {
 		return errors.New("companion is ready, but Sage could not open; open https://steam-sage.effigy-analytics.com/companion in your browser")
 	}
 	return nil

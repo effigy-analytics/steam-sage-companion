@@ -30,6 +30,13 @@ func CanonicalDir(path string) (string, error) {
 	if strings.ContainsAny(strings.TrimPrefix(abs, filepath.VolumeName(abs)), `:*?"<>|`) {
 		return "", errors.New("invalid Windows directory")
 	}
+	// Win32 strips trailing ASCII dots/spaces. Reject these spellings before
+	// probing or hashing a missing suffix, so creation cannot change identity.
+	for _, component := range strings.Split(strings.TrimPrefix(abs, filepath.VolumeName(abs)), string(filepath.Separator)) {
+		if strings.HasSuffix(component, ".") || strings.HasSuffix(component, " ") {
+			return "", errors.New("ambiguous Windows directory component")
+		}
+	}
 	var missing []string
 	existing := ""
 	for part := abs; ; part = filepath.Dir(part) {

@@ -12,10 +12,58 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/effigy-analytics/steam-sage-companion/internal/winuser"
 	"golang.org/x/sys/windows"
 )
+
+func activationName(dir string) string {
+	sid, _ := winuser.CurrentSID()
+	name, _ := activationNameFor(sid, dir)
+	return name
+}
+
+func TestWindowsActivationPipeHasProtectedOwnerOnlyACL(t *testing.T) {
+	dir, _, _ := windowsActivation(t, func() error { return nil })
+	c, err := winio.DialPipe(activationName(dir), durationPtr(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	f, ok := c.(interface{ Fd() uintptr })
+	if !ok {
+		t.Fatal("pipe handle unavailable")
+	}
+	sd, err := windows.GetSecurityInfo(windows.Handle(f.Fd()), windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := winuser.CurrentSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, _, err := sd.Owner()
+	if err != nil || owner.String() != sid {
+		t.Fatal("pipe owner differs from process user")
+	}
+	control, _, err := sd.Control()
+	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		t.Fatal("pipe inherited a broad DACL")
+	}
+	acl, _, err := sd.DACL()
+	if err != nil || acl == nil || acl.AceCount != 1 {
+		t.Fatal("pipe ACL is not a single explicit user grant")
+	}
+	var ace *windows.ACCESS_ALLOWED_ACE
+	if err = windows.GetAce(acl, 0, &ace); err != nil {
+		t.Fatal(err)
+	}
+	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERITED_ACE != 0 || (*windows.SID)(unsafe.Pointer(&ace.SidStart)).String() != sid {
+		t.Fatal("pipe grants access to an inherited or different identity")
+	}
+}
 
 func windowsActivation(t *testing.T, open func() error, stop ...func()) (string, context.CancelFunc, io.Closer) {
 	t.Helper()
@@ -101,6 +149,45 @@ func TestWindowsActivationOpenCallbackCanReenterReadiness(t *testing.T) {
 	dir, _, _ = windowsActivation(t, func() error { return RequestReady(dir) })
 	if err := RequestOpen(dir); err != nil {
 		t.Fatal("open callback could not reenter activation readiness:", err)
+	}
+}
+
+func TestWindowsActivationOpenDeadlineAndMalformedRequests(t *testing.T) {
+	var opened atomic.Int32
+	release := make(chan struct{})
+	defer close(release)
+	dir, _, listener := windowsActivation(t, func() error { opened.Add(1); <-release; return nil })
+	c, err := winio.DialPipe(activationName(dir), durationPtr(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetDeadline(time.Now().Add(time.Second))
+	c.Write([]byte{'x'})
+	var response [1]byte
+	if _, e := io.ReadFull(c, response[:]); e == nil {
+		t.Fatal("malformed command was acknowledged")
+	}
+	c.Close()
+	if opened.Load() != 0 {
+		t.Fatal("malformed command opened controls")
+	}
+	started := time.Now()
+	if RequestOpen(dir) == nil {
+		t.Fatal("unfinished open was acknowledged")
+	}
+	if elapsed := time.Since(started); elapsed < time.Second || elapsed > 2500*time.Millisecond {
+		t.Fatalf("open operation deadline: %s", elapsed)
+	}
+	if opened.Load() != 1 {
+		t.Fatal("open callback did not start exactly once")
+	}
+	if err = RequestReady(dir); err != nil {
+		t.Fatal("blocked open callback held activation coordination mutex:", err)
+	}
+	started = time.Now()
+	listener.Close()
+	if time.Since(started) > 500*time.Millisecond {
+		t.Fatal("shutdown waited for external callback")
 	}
 }
 

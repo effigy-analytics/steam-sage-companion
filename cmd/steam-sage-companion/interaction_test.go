@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/effigy-analytics/steam-sage-companion/internal/launch"
 	"testing"
+
+	"github.com/effigy-analytics/steam-sage-companion/internal/launch"
 )
 
 func TestSettingsUsesDetachedLaunchDestination(t *testing.T) {
