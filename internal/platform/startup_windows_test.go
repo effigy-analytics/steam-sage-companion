@@ -158,6 +158,14 @@ func TestWindowsStartupPreservesLossyOrOversizeRawRegistryValues(t *testing.T) {
 				if code != 0 {
 					t.Fatalf("write synthetic REG_SZ: %d", code)
 				}
+				storedSize, storedKind, sizeErr := key.GetValue("SteamSageCompanion", nil)
+				probe := bytes.Repeat([]byte{0xcc}, len(raw)+4)
+				returnedSize, returnedKind, probeErr := key.GetValue("SteamSageCompanion", probe)
+				tail := probe
+				if len(tail) > 16 {
+					tail = tail[len(tail)-16:]
+				}
+				t.Logf("raw registry diagnostic: supplied=%d queried=%d kind=%d sizeErr=%v returned=%d kind=%d readErr=%v tail=%x", len(raw), storedSize, storedKind, sizeErr, returnedSize, returnedKind, probeErr, tail)
 				called := false
 				err := SetStartupTransaction(enabled, fixtureEXE, fixtureConfig, func() error { called = true; return nil })
 				if err == nil || called {

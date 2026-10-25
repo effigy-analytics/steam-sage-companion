@@ -179,7 +179,7 @@ func TestWindowsInspectorRefusesProductStageAndExternalReport(t *testing.T) {
 // replaces malformed UTF-16, so it cannot establish exact package ownership.
 func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testing.T) {
 	fixtureLayout(t)
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallRegistry, registry.SET_VALUE)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallRegistry, registry.SET_VALUE|registry.QUERY_VALUE)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +201,14 @@ func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testin
 			if code != 0 {
 				t.Fatalf("write synthetic raw REG_SZ: %d", code)
 			}
+			storedSize, storedKind, sizeErr := key.GetValue("DisplayName", nil)
+			probe := bytes.Repeat([]byte{0xcc}, len(raw)+4)
+			returnedSize, returnedKind, probeErr := key.GetValue("DisplayName", probe)
+			tail := probe
+			if len(tail) > 16 {
+				tail = tail[len(tail)-16:]
+			}
+			t.Logf("raw registry diagnostic: supplied=%d queried=%d kind=%d sizeErr=%v returned=%d kind=%d readErr=%v tail=%x", len(raw), storedSize, storedKind, sizeErr, returnedSize, returnedKind, probeErr, tail)
 			_, present, err := readValue(managedValue{key: uninstallRegistry, name: "DisplayName", wanted: "owned"})
 			if err == nil || !present {
 				t.Fatalf("malformed or changed raw value became an owned string: present=%v err=%v", present, err)
