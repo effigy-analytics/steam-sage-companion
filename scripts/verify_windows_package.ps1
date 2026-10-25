@@ -4,6 +4,7 @@
 param([Parameter(Mandatory)][string]$Output)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Add-Type -Path (Join-Path $PSScriptRoot 'windows_shortcut_reader.cs')
 $fixtureBase = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Temp'
 $root = Join-Path $fixtureBase ('Sage QA 雪 café ' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $root | Out-Null
@@ -126,13 +127,25 @@ function Record-ShortcutEvidence([string]$Phase) {
             $canonical = $shell.CreateShortcut($item.FullName)
             $entry.target = $raw.TargetPath; $entry.arguments = $raw.Arguments; $entry.working_directory = $raw.WorkingDirectory
             $entry.canonical_target = $canonical.TargetPath; $entry.canonical_arguments = $canonical.Arguments; $entry.canonical_working_directory = $canonical.WorkingDirectory
+            $copy = $shell.CreateShortcut((Join-Path $destination $name))
+            $entry.ascii_copy_target = $copy.TargetPath; $entry.ascii_copy_arguments = $copy.Arguments; $entry.ascii_copy_working_directory = $copy.WorkingDirectory
+            $entry.native = [SagePackageFixtures.ShortcutReader]::Read($item.FullName)
         }
         Write-Host ($entry | ConvertTo-Json -Compress)
         $records += $entry
     }
-    $records | ConvertTo-Json | Set-Content (Join-Path $destination 'shortcuts.json') -Encoding utf8
+    $records | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $destination 'shortcuts.json') -Encoding utf8
     $ledger = Join-Path $install 'package.ini'
     if ((Test-Path $ledger) -and (Get-Item $ledger).Length -le 65536) { Copy-Item $ledger (Join-Path $destination 'package.ini') }
+    foreach ($entry in $records) {
+        Assert $entry.exists ('Missing native shortcut: ' + $entry.requested_path)
+        $shortcut = $entry.native
+        $command = if ($entry.name -eq 'Companion Settings.lnk') { 'settings' } else { 'launch' }
+        Assert ($shortcut.LoadHResult -eq 0 -and $shortcut.ResolveHResult -eq 0 -and $shortcut.PathHResult -eq 0 -and $shortcut.ArgumentsHResult -eq 0 -and $shortcut.WorkingDirectoryHResult -eq 0) ('Native shortcut load/resolve failed during ' + $Phase + ': ' + ($shortcut | ConvertTo-Json -Compress))
+        Assert ($shortcut.TargetPath -ceq (Join-Path $install 'steam-sage-companion.exe')) ('Native Unicode target changed during ' + $Phase + ': ' + $shortcut.TargetPath)
+        Assert ($shortcut.Arguments -ceq ($command + ' --config-dir "' + (Join-Path $root 'Config') + '"')) ('Native shortcut arguments changed during ' + $Phase)
+        Assert ($shortcut.WorkingDirectory -ceq $install) ('Native shortcut working directory changed during ' + $Phase)
+    }
 }
 Check 'upgrade preserves pairing source startup and exact Unicode shortcut targets' {
     Fresh
@@ -151,12 +164,7 @@ Check 'upgrade preserves pairing source startup and exact Unicode shortcut targe
     Record-ShortcutEvidence 'after-upgrade'
     Assert ((Hash $settings) -eq $before) 'Settings bytes changed'
     Assert ((Get-ItemPropertyValue $run SteamSageCompanion) -ceq $command) 'Startup changed'
-    $shell = New-Object -ComObject WScript.Shell
-    foreach ($case in @(@('Steam Sage Companion.lnk','launch'), @('Companion Settings.lnk','settings'))) {
-        $shortcut = $shell.CreateShortcut((Join-Path $root ('Start Menu/Steam Sage Companion/' + $case[0])))
-        Assert ($shortcut.TargetPath -ceq (Join-Path $install 'steam-sage-companion.exe')) ('Unicode target changed: got=[' + $shortcut.TargetPath + '] expected=[' + (Join-Path $install 'steam-sage-companion.exe') + '] workingDirectory=[' + $shortcut.WorkingDirectory + ']')
-        Assert ($shortcut.Arguments -ceq ($case[1] + ' --config-dir "' + $configDir + '"')) 'Shortcut arguments changed'
-    }
+
 }
 foreach ($damage in @('changed', 'malformed', 'oversize', 'wrong-root', 'reparse')) {
     Check "unsafe ledger $damage preserves installation" {
