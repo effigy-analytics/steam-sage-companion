@@ -35,6 +35,30 @@ try {
     Assert (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Elevated fixture token'
     $groups = @($identity.Groups | ForEach-Object Value)
     Assert ($groups -notcontains 'S-1-5-32-544') 'Token contains administrator group'
+    Add-Type -Path (Join-Path $Root 'profile-probe.dll')
+    $profileListKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\' + $identity.User.Value
+    $profileList = Get-ItemProperty -Path $profileListKey -Name ProfileImagePath -ErrorAction SilentlyContinue
+    $shellFolders = Get-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -ErrorAction SilentlyContinue
+    $observations = [ordered]@{
+        sid=$identity.User.Value
+        token_profile=[SageBoundary.ProfileProbe]::Profile($identity.Token)
+        profile_list=$(if ($profileList) { $profileList.ProfileImagePath } else { '' })
+        environment=@{ USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA; TEMP=$env:TEMP; USERNAME=$env:USERNAME }
+        user_shell_folders=@{}
+        native=@()
+    }
+    if ($shellFolders) {
+        foreach ($name in @('AppData', 'Local AppData', 'Programs')) {
+            $observations.user_shell_folders[$name] = $shellFolders.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        }
+    }
+    $folderIDs = @{ LocalApplicationData='f1b32785-6fba-4fcf-9d55-7b8e7f157091'; ApplicationData='3eb685db-65f9-4cf6-a03a-e3ef65729f3d'; Programs='a77f5d77-2e2b-44c3-a6a2-aba601054a51' }
+    foreach ($name in $folderIDs.Keys) {
+        foreach ($flags in @(0, 0x8000)) {
+            $observations.native += @{ name=$name; flags=$flags; current=[SageBoundary.ProfileProbe]::Folder($folderIDs[$name], $flags, [IntPtr]::Zero); explicit_token=[SageBoundary.ProfileProbe]::Folder($folderIDs[$name], $flags, $identity.Token) }
+        }
+    }
+    $observations | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $evidence 'profile-diagnostics.json') -Encoding utf8
     # A newly loaded headless profile has not had Explorer initialize Programs.
     # Create real current-user known folders through the native folder API; do not
     # fabricate paths or substitute APPDATA/HOME for an actual logon boundary.
@@ -65,6 +89,9 @@ try {
     Assert ((Run $parameters.setup '/S') -eq 0) 'Production Setup failed under standard token'
     $status = Wait-Ready
     Assert (Test-Path (Join-Path $install 'package.ini')) 'Missing production ledger'
+    Assert ((Get-FileHash $bin).Hash -eq $parameters.payload_sha256) 'Installed payload differs from the reviewed production build'
+    $installedMetadata = Get-Content (Join-Path $install 'release.json') -Raw | ConvertFrom-Json
+    Assert ($installedMetadata.source_ref -eq $parameters.source_ref -and -not $installedMetadata.qa_adapter) 'Installed metadata does not identify the production source'
     Assert (Test-Path (Join-Path $menu 'Companion Settings.lnk')) 'Missing native Settings shortcut'
     Assert (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion') 'Missing current-user Apps registration'
     $firstPID = OwnedPID

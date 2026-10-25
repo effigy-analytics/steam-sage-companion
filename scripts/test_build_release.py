@@ -40,6 +40,10 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(set(z.namelist()), set(files))
             self.assertEqual(z.read("release.json"), files["release.json"])
 
+    def test_source_zip_keeps_shell_entrypoints_executable(self):
+        with zipfile.ZipFile(io.BytesIO(release.archive({"scripts/with-isolated-network.sh": b"#!/bin/sh\n"}, True))) as z:
+            self.assertEqual((z.getinfo("scripts/with-isolated-network.sh").external_attr >> 16) & 0o777, 0o755)
+
     def test_output_must_be_empty_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

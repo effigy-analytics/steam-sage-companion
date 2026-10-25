@@ -48,6 +48,7 @@ jobs:
         run: scripts/with-isolated-network.sh go test -race -count=1 -v ./...
       - run: go build ./cmd/steam-sage-companion
       - name: Native Windows package fixtures (separate QA adapter)
+        id: windows-package
         if: runner.os == 'Windows'
         shell: pwsh
         run: scripts/verify_windows_package.ps1 -Output "$env:RUNNER_TEMP/package-evidence"
@@ -68,13 +69,17 @@ jobs:
           name: windows-boundary-evidence
           path: ${{ runner.temp }}/boundary-evidence
       - name: Build clean production candidates twice and inspect contents
-        if: runner.os == 'Windows'
+        # Compile-only release diagnostics can proceed after a boundary fixture failure;
+        # all runtime prerequisites must pass and the overall CI remains failed.
+        if: always() && runner.os == 'Windows' && steps.windows-package.outcome == 'success'
         shell: pwsh
         run: |
           $one = Join-Path $env:RUNNER_TEMP 'public-candidate-one'
           $two = Join-Path $env:RUNNER_TEMP 'public-candidate-two'
           python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $one
           if ($LASTEXITCODE) { throw 'First public candidate failed' }
+          # Cross a filesystem timestamp tick so equal hashes prove more than an immediate rebuild.
+          Start-Sleep -Seconds 3
           python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $two
           if ($LASTEXITCODE) { throw 'Second public candidate failed' }
           python scripts/verify_release.py $one $two --version 0.1.0-alpha.3 --source-ref (git rev-parse HEAD) --report "$env:RUNNER_TEMP/repeatability.json"

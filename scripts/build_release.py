@@ -24,7 +24,8 @@ def archive(files: dict[str, bytes], windows: bool) -> bytes:
             for name, data in sorted(files.items()):
                 info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = 0o644 << 16
+                info.create_system = 3
+                info.external_attr = (0o755 if name.endswith(".sh") else 0o644) << 16
                 z.writestr(info, data)
     else:
         with gzip.GzipFile(fileobj=out, mode="wb", filename="", mtime=0) as gz:
@@ -51,7 +52,7 @@ def go_build_args(version: str, source_ref: str, target: str, binary: Path) -> l
 def source_files(files: dict[str, bytes]) -> dict[str, bytes]:
     """Only public build, test, documentation and protocol sources enter source ZIP."""
     roots = {"cmd", "internal", "scripts", "packaging", "protocol", "docs", ".github"}
-    top = {"go.mod", "go.sum", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt", ".gitignore"}
+    top = {"go.mod", "go.sum", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt", ".gitignore", ".gitattributes"}
     suffixes = {".go", ".py", ".ps1", ".cs", ".sh", ".cjs", ".mjs", ".json", ".md", ".txt", ".yml", ".yaml", ".nsi", ".nsh", ".html", ".js", ".css"}
     result = {}
     for name, data in files.items():

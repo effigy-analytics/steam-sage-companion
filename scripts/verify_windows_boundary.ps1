@@ -26,13 +26,15 @@ try {
     $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     & $csc /nologo /target:winexe ("/out:$root/capture.exe") (Join-Path $root 'windows_url_capture.cs')
     if ($LASTEXITCODE) { throw 'Capture fixture build failed' }
+    & $csc /nologo /target:library ("/out:$root/profile-probe.dll") (Join-Path $PSScriptRoot 'windows_profile_probe.cs')
+    if ($LASTEXITCODE) { throw 'Profile diagnostic fixture build failed' }
     if ($SageRoot) {
         New-Item -ItemType Directory -Force (Join-Path $root 'sage/src/test/fixtures') | Out-Null
         Copy-Item (Join-Path $SageRoot 'dist') (Join-Path $root 'sage/dist') -Recurse
         Copy-Item (Join-Path $SageRoot 'scripts') (Join-Path $root 'sage/scripts') -Recurse
         Copy-Item (Join-Path $SageRoot 'src/test/fixtures/api') (Join-Path $root 'sage/src/test/fixtures/api') -Recurse
     }
-    $parameters = @{ root=$root; setup=$setup; expected_sid=$user.SID.Value; node=(Get-Command node -ErrorAction SilentlyContinue).Source; browser_tools=$BrowserTools; sage=[bool]$SageRoot }
+    $parameters = @{ payload_sha256=(Get-FileHash (Join-Path $build 'steam-sage-companion.exe')).Hash; source_ref=(git -C $repo rev-parse HEAD).Trim(); root=$root; setup=$setup; expected_sid=$user.SID.Value; node=(Get-Command node -ErrorAction SilentlyContinue).Source; browser_tools=$BrowserTools; sage=[bool]$SageRoot }
     $parameters | ConvertTo-Json | Set-Content (Join-Path $root 'parameters.json') -Encoding utf8
     $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $password)
     $shell = (Get-Command pwsh).Source

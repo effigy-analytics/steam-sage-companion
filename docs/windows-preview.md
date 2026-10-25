@@ -14,7 +14,7 @@ Linux users should keep using the published alpha.2 Linux installer.
    needed. This preview is unsigned; Windows may display an unknown-publisher or
    reputation warning. We cannot promise warning-free downloads or execution.
    Review the source and release identity before deciding whether to run it;
-   do not disable Windows protections. See [Microsoft's SmartScreen explanation](https://learn.microsoft.com/en-us/windows/apps/trust/smartscreen).
+   do not disable Windows protections. See [Microsoft's SmartScreen explanation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 3. Return to Sage. Choose **Connect this browser**, allow this site's local
    connection request if shown, then select your Steam account and approve
    **Allow collections** in the Companion page. Keep the original Sage tab open
