@@ -16,7 +16,6 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/platform"
 )
 
-type Paths struct{ Executable, Desktop, ConfigDir string }
 type manifest struct {
 	Kind           string `json:"kind"`
 	ExecutableHash string `json:"executable_hash"`

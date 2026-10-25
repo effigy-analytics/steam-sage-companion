@@ -56,14 +56,15 @@ try {
     $payload = Join-Path $Output 'steam-sage-companion.exe'
     $env:CGO_ENABLED = '0'; $env:GOOS = 'windows'; $env:GOARCH = 'amd64'
     $tags = @()
-    $ld = "-s -w -H=windowsgui -X main.version=$Version"
+    $ld = "-s -w -H=windowsgui -X main.version=$Version -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageVersion=$Version -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageSource=$source"
     if ($TestRoot) { $tags = @('-tags', 'packageqa'); $ld += " -X 'github.com/effigy-analytics/steam-sage-companion/internal/install.qaRoot=$TestRoot'" }
     & go build -mod=readonly -trimpath -buildvcs=false @tags -ldflags $ld -o $payload ./cmd/steam-sage-companion
     if ($LASTEXITCODE) { throw 'Windows helper build failed' }
+    [ordered]@{ version=$Version; source_ref=$source; platform='windows-amd64'; status='preview'; qa_adapter=[bool]$TestRoot; protocol=1 } | ConvertTo-Json | Set-Content (Join-Path $Output 'release.json') -Encoding utf8
     $label = if ($TestRoot) { '-QA' } else { '' }
     $setup = Join-Path $Output "steam-sage-companion-$Version-windows-amd64$label-setup.exe"
-    $defs = @("/DOUTPUT=$setup", "/DPAYLOAD=$payload", "/DVERSION=$Version", "/DSOURCE=$source", "/DREPO=$repo")
-    if ($TestRoot) { $defs += "/DQA_ROOT=$TestRoot" }
+    $defs = @("/DOUTPUT=$setup", "/DPAYLOAD=$payload", "/DVERSION=$Version", "/DSOURCE=$source", "/DREPO=$repo", "/DMETADATA=$(Join-Path $Output 'release.json')")
+    if ($TestRoot) { $defs += "/DQA_ROOT=$TestRoot"; $defs += "/DQA_ID=$(Split-Path $TestRoot -Leaf)" }
     & $compiler /V3 @defs (Join-Path $repo 'packaging/windows/installer.nsi')
     if ($LASTEXITCODE) { throw 'NSIS compilation failed' }
     $metadata = [ordered]@{ version=$Version; source_ref=$source; go_version=(& go version); nsis=$manifest.version; nsis_sha256=$manifest.sha256; status='preview'; qa_adapter=[bool]$TestRoot; setup_sha256=(Get-FileHash $setup).Hash.ToLowerInvariant() }

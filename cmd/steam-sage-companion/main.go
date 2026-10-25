@@ -35,6 +35,9 @@ func commandArgs(args []string) (string, []string) {
 
 func main() {
 	command, rest := commandArgs(os.Args[1:])
+	if packageCommand(command, rest) {
+		return
+	}
 	if command == "install" || command == "uninstall" {
 		flags := flag.NewFlagSet(command, flag.ExitOnError)
 		base, err := os.UserConfigDir()
