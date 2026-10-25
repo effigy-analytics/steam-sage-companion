@@ -66,7 +66,7 @@ func TestWindowsCanonicalPathsAndLayoutUseKnownFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	install := filepath.Join(local, "Programs", "Steam Sage Companion")
-	if layout.InstallDir != install || layout.Executable != filepath.Join(install, "steam-sage-companion.exe") || layout.Uninstaller != filepath.Join(install, "uninstall.exe") || layout.Ledger != filepath.Join(install, "package.ini") || layout.StartMenuDir != filepath.Join(programs, "Steam Sage Companion") || layout.LaunchShortcut != filepath.Join(programs, "Steam Sage Companion", "Launch.lnk") || layout.SettingsShortcut != filepath.Join(programs, "Steam Sage Companion", "Companion Settings.lnk") || layout.ConfigDir != filepath.Join(roaming, "steam-sage-companion") {
+	if layout.InstallDir != install || layout.Executable != filepath.Join(install, "steam-sage-companion.exe") || layout.Uninstaller != filepath.Join(install, "Uninstall.exe") || layout.Ledger != filepath.Join(install, "package.ini") || layout.StartMenuDir != filepath.Join(programs, "Steam Sage Companion") || layout.LaunchShortcut != filepath.Join(programs, "Steam Sage Companion", "Steam Sage Companion.lnk") || layout.SettingsShortcut != filepath.Join(programs, "Steam Sage Companion", "Companion Settings.lnk") || layout.ConfigDir != filepath.Join(roaming, "steam-sage-companion") {
 		t.Fatalf("incorrect independently derived layout: %+v", layout)
 	}
 	custom := filepath.Join(root, "自定义 settings")
