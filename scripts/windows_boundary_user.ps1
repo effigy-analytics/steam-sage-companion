@@ -35,9 +35,14 @@ try {
     Assert (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Elevated fixture token'
     $groups = @($identity.Groups | ForEach-Object Value)
     Assert ($groups -notcontains 'S-1-5-32-544') 'Token contains administrator group'
-    $local = [Environment]::GetFolderPath('LocalApplicationData')
-    $roaming = [Environment]::GetFolderPath('ApplicationData')
-    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Steam Sage Companion'
+    # A newly loaded headless profile has not had Explorer initialize Programs.
+    # Create real current-user known folders through the native folder API; do not
+    # fabricate paths or substitute APPDATA/HOME for an actual logon boundary.
+    $local = [Environment]::GetFolderPath('LocalApplicationData', 'Create')
+    $roaming = [Environment]::GetFolderPath('ApplicationData', 'Create')
+    $programs = [Environment]::GetFolderPath('Programs', 'Create')
+    Assert ($local -and $roaming -and $programs) 'Native profile folder initialization failed'
+    $menu = Join-Path $programs 'Steam Sage Companion'
     Assert ($local -and $roaming -and $menu) 'Missing real profile known folders'
     $install = Join-Path $local 'Programs/Steam Sage Companion'
     $bin = Join-Path $install 'steam-sage-companion.exe'
