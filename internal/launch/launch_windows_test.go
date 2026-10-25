@@ -65,6 +65,10 @@ func init() {
 		os.Exit(14)
 	}
 	defer port.Close()
+	if mode == "delayed" {
+		_ = os.WriteFile(filepath.Join(root, "port-claimed"), pid, 0600)
+		time.Sleep(time.Second)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	l, err := app.ListenActivation(ctx, dir, func() error {
@@ -216,6 +220,54 @@ func TestWindowsParallelLaunchUsesOneOwner(t *testing.T) {
 	if _, e := os.Stat(filepath.Join(root, "settings-opened")); !os.IsNotExist(e) {
 		t.Fatal("parallel startup opened controls")
 	}
+}
+
+func TestWindowsLaunchWaitsForDelayedOwnedWinnerAfterChildExit(t *testing.T) {
+	root, options := nativeFixture(t)
+	options.Destination = None
+	if err := os.WriteFile(filepath.Join(root, "mode"), []byte("delayed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Explicitly own the winning child and observe it claim the port before
+	// starting the competing launcher. Its private pipe appears one second later.
+	winner := exec.Command(options.Executable, "serve", "--background", "--config-dir", options.ConfigDir)
+	configureChild(winner)
+	if err := winner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- winner.Wait() }()
+	t.Cleanup(func() {
+		if app.RequestStopAndWait(options.ConfigDir, options.Executable) != nil {
+			_ = winner.Process.Kill()
+		}
+		select {
+		case <-exited:
+		case <-time.After(2 * time.Second):
+			t.Error("owned delayed winner did not exit")
+		}
+	})
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if raw, err := os.ReadFile(filepath.Join(root, "port-claimed")); err == nil {
+			if string(raw) != strconv.Itoa(winner.Process.Pid) {
+				t.Fatal("unexpected process claimed synthetic port")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("winner did not claim synthetic port")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	started := time.Now()
+	if err := run(options, func(string) error { return errors.New("unexpected browser") }); err != nil {
+		t.Fatal("losing child exited before owned winner was ready:", err)
+	}
+	if time.Since(started) > 5500*time.Millisecond {
+		t.Fatal("contention extended original readiness deadline")
+	}
+	waitOwned(t, options)
 }
 func TestWindowsLaunchBrowserFailureKeepsReadyOwner(t *testing.T) {
 	_, options := nativeFixture(t)
