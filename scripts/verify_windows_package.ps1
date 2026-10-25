@@ -125,7 +125,7 @@ Check 'upgrade preserves pairing source startup and exact Unicode shortcut targe
     $shell = New-Object -ComObject WScript.Shell
     foreach ($case in @(@('Steam Sage Companion.lnk','launch'), @('Companion Settings.lnk','settings'))) {
         $shortcut = $shell.CreateShortcut((Join-Path $root ('Start Menu/Steam Sage Companion/' + $case[0])))
-        Assert ($shortcut.TargetPath -ceq (Join-Path $install 'steam-sage-companion.exe')) 'Unicode target changed'
+        Assert ($shortcut.TargetPath -ceq (Join-Path $install 'steam-sage-companion.exe')) ('Unicode target changed: got=[' + $shortcut.TargetPath + '] expected=[' + (Join-Path $install 'steam-sage-companion.exe') + '] workingDirectory=[' + $shortcut.WorkingDirectory + ']')
         Assert ($shortcut.Arguments -ceq ($case[1] + ' --config-dir "' + $configDir + '"')) 'Shortcut arguments changed'
     }
 }

@@ -194,7 +194,11 @@ func stagePaths(stage, report string, l winuser.Layout) (string, error) {
 		return "", errors.New("report must be report.ini inside the private stage")
 	}
 	for _, root := range []string{l.InstallDir, l.StartMenuDir, l.ConfigDir} {
-		if inside(canonical, root) || inside(root, canonical) {
+		canonicalRoot, err := winuser.CanonicalDir(root)
+		if err != nil {
+			return "", err
+		}
+		if inside(canonical, canonicalRoot) || inside(canonicalRoot, canonical) {
 			return "", errors.New("report staging must not overlap product destinations")
 		}
 	}
