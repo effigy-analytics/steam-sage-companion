@@ -107,8 +107,36 @@ Check 'fresh Setup refuses identical but unowned executable' {
     Assert ((Hash (Join-Path $install 'steam-sage-companion.exe')) -eq $before) 'Replaced unowned executable'
     Assert (-not (Test-Path (Join-Path $install 'package.ini'))) 'Claimed unowned package'
 }
+function Record-ShortcutEvidence([string]$Phase) {
+    $destination = Join-Path $Output ('shortcut-observations/' + $Phase)
+    New-Item -ItemType Directory -Force $destination | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    $records = @()
+    foreach ($name in @('Steam Sage Companion.lnk', 'Companion Settings.lnk')) {
+        $path = Join-Path $root ('Start Menu/Steam Sage Companion/' + $name)
+        $entry = [ordered]@{ phase=$Phase; name=$name; requested_path=$path; exists=(Test-Path -LiteralPath $path) }
+        if ($entry.exists) {
+            $item = Get-Item -LiteralPath $path
+            $entry.full_name = $item.FullName
+            $entry.bytes = $item.Length
+            $entry.sha256 = Hash $item.FullName
+            Assert ($item.Length -le 65536) 'Synthetic shortcut exceeds diagnostic bound'
+            Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $destination $name)
+            $raw = $shell.CreateShortcut($path)
+            $canonical = $shell.CreateShortcut($item.FullName)
+            $entry.target = $raw.TargetPath; $entry.arguments = $raw.Arguments; $entry.working_directory = $raw.WorkingDirectory
+            $entry.canonical_target = $canonical.TargetPath; $entry.canonical_arguments = $canonical.Arguments; $entry.canonical_working_directory = $canonical.WorkingDirectory
+        }
+        Write-Host ($entry | ConvertTo-Json -Compress)
+        $records += $entry
+    }
+    $records | ConvertTo-Json | Set-Content (Join-Path $destination 'shortcuts.json') -Encoding utf8
+    $ledger = Join-Path $install 'package.ini'
+    if ((Test-Path $ledger) -and (Get-Item $ledger).Length -le 65536) { Copy-Item $ledger (Join-Path $destination 'package.ini') }
+}
 Check 'upgrade preserves pairing source startup and exact Unicode shortcut targets' {
     Fresh
+    Record-ShortcutEvidence 'before-upgrade'
     $configDir = Join-Path $root 'Config'
     New-Item -ItemType Directory $configDir | Out-Null
     $settings = Join-Path $configDir 'settings.json'
@@ -120,6 +148,7 @@ Check 'upgrade preserves pairing source startup and exact Unicode shortcut targe
     $command = '"' + (Join-Path $install 'steam-sage-companion.exe') + '" serve --background --config-dir "' + $configDir + '"'
     Set-ItemProperty $run SteamSageCompanion $command
     Assert ((Run $upgrade '/S') -eq 0) 'Upgrade failed'
+    Record-ShortcutEvidence 'after-upgrade'
     Assert ((Hash $settings) -eq $before) 'Settings bytes changed'
     Assert ((Get-ItemPropertyValue $run SteamSageCompanion) -ceq $command) 'Startup changed'
     $shell = New-Object -ComObject WScript.Shell
