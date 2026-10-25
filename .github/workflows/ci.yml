@@ -55,3 +55,13 @@ jobs:
         with:
           name: windows-package-evidence
           path: ${{ runner.temp }}/package-evidence
+      - name: Production Windows standard-user boundary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/verify_windows_boundary.ps1 -Output "$env:RUNNER_TEMP/boundary-evidence"
+      - name: Retain sanitized standard-user boundary evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-boundary-evidence
+          path: ${{ runner.temp }}/boundary-evidence

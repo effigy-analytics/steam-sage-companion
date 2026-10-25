@@ -1,0 +1,100 @@
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$Root)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$evidence = Join-Path $Root 'evidence'
+New-Item -ItemType Directory -Force $evidence | Out-Null
+$checks = [Collections.Generic.List[string]]::new()
+function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+function Passed([string]$Message) { $checks.Add($Message); Write-Host "PASS $Message" }
+function Run([string]$File, [string]$Arguments) {
+    $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru
+    if (-not $p.WaitForExit(30000)) { throw 'Owned fixture command timed out' }
+    return $p.ExitCode
+}
+function Wait-Ready {
+    for ($i=0; $i -lt 200; $i++) {
+        try { return Invoke-RestMethod 'http://127.0.0.1:43871/v1/status' -Headers @{Origin='https://steam-sage.effigy-analytics.com'} -TimeoutSec 1 } catch { Start-Sleep -Milliseconds 50 }
+    }
+    throw 'Installed helper did not become ready'
+}
+function OwnedPID {
+    $connection = @(Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)
+    Assert ($connection.Count -eq 1) 'Expected exactly one loopback listener'
+    $process = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $connection[0].OwningProcess)
+    Assert ($process.ExecutablePath -eq $bin) 'Listener is not the installed helper'
+    $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
+    Assert ($owner.Sid -eq $identity.User.Value) 'Listener is not owned by fixture account'
+    return $process.ProcessId
+}
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+try {
+    $parameters = Get-Content (Join-Path $Root 'parameters.json') -Raw | ConvertFrom-Json
+    Assert ($identity.User.Value -eq $parameters.expected_sid) 'Wrong fixture identity'
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    Assert (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Elevated fixture token'
+    $groups = @($identity.Groups | ForEach-Object Value)
+    Assert ($groups -notcontains 'S-1-5-32-544') 'Token contains administrator group'
+    $local = [Environment]::GetFolderPath('LocalApplicationData')
+    $roaming = [Environment]::GetFolderPath('ApplicationData')
+    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Steam Sage Companion'
+    Assert ($local -and $roaming -and $menu) 'Missing real profile known folders'
+    $install = Join-Path $local 'Programs/Steam Sage Companion'
+    $bin = Join-Path $install 'steam-sage-companion.exe'
+    $config = Join-Path $roaming 'steam-sage-companion'
+    Assert (-not (Test-Path $install)) 'Fixture unexpectedly has a production install'
+    Assert (-not (Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)) 'Fixture port occupied before Setup'
+    $opened = Join-Path $Root 'opened-private.txt'
+    foreach ($scheme in @('http', 'https')) {
+        $key = "HKCU:\Software\Classes\$scheme"
+        New-Item -Path "$key\shell\open\command" -Force | Out-Null
+        Set-ItemProperty $key -Name 'URL Protocol' -Value ''
+        Set-Item -Path "$key\shell\open\command" -Value ('"' + $Root + '\capture.exe" "' + $opened + '" "%1"')
+    }
+    $steam = Join-Path $Root 'Steam synthetic 漢字'
+    $source = Join-Path $steam 'userdata/39734273/config/cloudstorage/cloud-storage-namespace-1.json'
+    New-Item -ItemType Directory -Force (Split-Path $source -Parent) | Out-Null
+    '[ ["user-collections.done", {"value":"{\"id\":\"done\",\"name\":\"Completed\",\"added\":[1001],\"removed\":[]}"}], ["user-collections.next", {"value":"{\"id\":\"next\",\"name\":\"Play These First\",\"added\":[1002],\"removed\":[]}"}] ]' | Set-Content $source -Encoding utf8NoBOM
+    New-Item 'HKCU:\Software\Valve\Steam' -Force | Out-Null
+    Set-ItemProperty 'HKCU:\Software\Valve\Steam' -Name SteamPath -Value $steam
+    Assert ((Run $parameters.setup '/S') -eq 0) 'Production Setup failed under standard token'
+    $status = Wait-Ready
+    Assert (Test-Path (Join-Path $install 'package.ini')) 'Missing production ledger'
+    Assert (Test-Path (Join-Path $menu 'Companion Settings.lnk')) 'Missing native Settings shortcut'
+    Assert (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion') 'Missing current-user Apps registration'
+    $firstPID = OwnedPID
+    Assert ((Run $bin 'launch --background') -eq 0) 'Warm launch failed'
+    Assert ((OwnedPID) -eq $firstPID) 'Warm launch replaced singleton'
+    Assert (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SteamSageCompanion -ErrorAction SilentlyContinue)) 'Startup enabled by default'
+    Passed 'production Setup, standard token, real known folders/HKCU, background survival, singleton and startup off'
+    Assert ((Run $bin 'stop') -eq 0) 'Verified stop failed'
+    Assert ((Run $bin 'settings') -eq 0) 'Cold Settings failed'
+    $null = Wait-Ready
+    $null = OwnedPID
+    for ($i=0; $i -lt 200 -and -not (Test-Path $opened); $i++) { Start-Sleep -Milliseconds 50 }
+    Assert ((Test-Path $opened) -and (Get-Content $opened | Select-Object -Last 1).StartsWith('http://127.0.0.1:43871/')) 'Cold Settings did not dispatch local controls through native URL handler'
+    Passed 'cold Settings returns with owned background process and native ShellExecute dispatch'
+    $manifest = @{ root=$Root; setup=$parameters.setup; bin=$bin; config=$config; source=$source; opened=$opened; evidence=$evidence; sid=$identity.User.Value; install=$install }
+    $manifest | ConvertTo-Json | Set-Content (Join-Path $Root 'fixture.json') -Encoding utf8
+    if ($parameters.sage) {
+        $env:COMPANION_WINDOWS_FIXTURE = Join-Path $Root 'fixture.json'
+        $env:PLAYWRIGHT_MODULE = Join-Path $parameters.browser_tools 'node_modules/playwright'
+        $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $parameters.browser_tools 'browsers'
+        & $parameters.node (Join-Path $Root 'sage/scripts/verify_windows_companion_flow.mjs') *> (Join-Path $evidence 'browser.log')
+        if ($LASTEXITCODE) { throw 'Windows browser boundary failed; see browser.log' }
+        Passed 'real Chromium HTTPS origin, explicit connection, separate approval context, read recovery, startup choice and upgrade'
+    }
+    $before = (Get-FileHash (Join-Path $config 'settings.json')).Hash
+    $uninstaller = Join-Path $Root 'trusted-uninstaller.exe'
+    Copy-Item (Join-Path $install 'Uninstall.exe') $uninstaller
+    Assert ((Run $uninstaller ('/S _?=' + $install)) -eq 0) 'Production uninstall failed'
+    Assert (-not (Test-Path $bin)) 'Uninstall kept owned executable'
+    Assert (-not (Test-Path $menu)) 'Uninstall kept owned shortcuts'
+    Assert (-not (Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)) 'Uninstall left listener'
+    Assert ((Get-FileHash (Join-Path $config 'settings.json')).Hash -eq $before) 'Uninstall changed settings'
+    Passed 'actual production uninstaller stops owned process, removes package and preserves settings'
+    @{ ok=$true; checks=$checks; os=(Get-CimInstance Win32_OperatingSystem).Caption; build=[Environment]::OSVersion.Version.ToString(); sid=$identity.User.Value; standard_token=$true; desktop_validation=$false; installer_ui='silent execution of production GUI binaries'; default_browser='synthetic per-user URL handler through native ShellExecute' } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'result.json') -Encoding utf8
+} catch {
+    @{ ok=$false; checks=$checks; error=$_.Exception.Message; location=$_.ScriptStackTrace } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'result.json') -Encoding utf8
+    exit 1
+}
