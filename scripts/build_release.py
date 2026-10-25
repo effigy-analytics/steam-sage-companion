@@ -1,6 +1,7 @@
 """Build deterministic, allowlisted companion archives without publishing them."""
 
 import argparse
+from contextlib import contextmanager
 import gzip
 import hashlib
 import io
@@ -87,6 +88,23 @@ def validate_output(files: dict[str, bytes], version: str, targets: list[str]) -
         raise ValueError("Unexpected or missing release deliverables: " + str(set(files) ^ expected))
 
 
+@contextmanager
+def tracked_checkout(source_ref: str):
+    """Compile exact tracked Git bytes; ignored embeds never enter this checkout."""
+    with tempfile.TemporaryDirectory(prefix="sage-tracked-source-") as scratch:
+        checkout = Path(scratch) / "source"
+        subprocess.run(["git", "worktree", "add", "--quiet", "--detach", str(checkout), source_ref],
+                       cwd=ROOT, check=True)
+        try:
+            actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            if actual != source_ref:
+                raise ValueError("Temporary source checkout does not match the explicit source ref")
+            yield checkout
+        finally:
+            # Remove only the uniquely created checkout; never prune other worktrees.
+            subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], cwd=ROOT, check=True)
+
+
 def main() -> None:
     """Build production artifacts in private scratch space, then export allowlist."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -102,9 +120,9 @@ def main() -> None:
     if "windows" in targets and os.name != "nt":
         raise SystemExit("Build Windows Setup on native Windows with the pinned NSIS toolchain")
     source_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    source_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True).strip()
+    source_tree = subprocess.check_output(["git", "rev-parse", f"{source_ref}^{{tree}}"], cwd=ROOT, text=True).strip()
     go_version = subprocess.check_output(["go", "version"], cwd=ROOT, text=True).strip()
-    tracked = subprocess.check_output(["git", "archive", "--format=tar", "HEAD"], cwd=ROOT)
+    tracked = subprocess.check_output(["git", "archive", "--format=tar", source_ref], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(tracked)) as source:
         inputs = {m.name: source.extractfile(m).read() for m in source.getmembers() if m.isfile()}
     sources = source_files(inputs)
@@ -112,7 +130,10 @@ def main() -> None:
     docs = {name: inputs[name] for name in ["LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt"]}
     docs.update({f"docs/{name}.md": inputs[f"docs/{name}.md"] for name in ["installation", "privacy", "protocol", "security", "windows-preview"]})
     prepare_output(args.output)
-    with tempfile.TemporaryDirectory(prefix="sage-public-build-") as scratch:
+    with tracked_checkout(source_ref) as source_root, tempfile.TemporaryDirectory(prefix="sage-public-build-") as scratch:
+        staged_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=source_root, text=True).strip()
+        if staged_tree != source_tree:
+            raise ValueError("Temporary source tree does not match the recorded source tree")
         for target in targets:
             windows = target == "windows"
             binary_name = "steam-sage-companion.exe" if windows else "steam-sage-companion"
@@ -121,8 +142,9 @@ def main() -> None:
             metadata = {"version": args.version, "protocol": 1, "source_ref": source_ref, "source_tree": source_tree,
                         "go_version": go_version, "platform": f"{target}-amd64", "status": "preview" if windows else "alpha", "qa_adapter": False}
             if windows:
-                subprocess.run(["pwsh", "-NoProfile", "-File", str(ROOT / "scripts/build_windows_installer.ps1"),
-                                "-Version", args.version, "-Output", str(work)], cwd=ROOT, check=True)
+                subprocess.run(["pwsh", "-NoProfile", "-File", str(source_root / "scripts/build_windows_installer.ps1"),
+                                "-Version", args.version, "-Output", str(work)], cwd=source_root,
+                               env={**os.environ, "GOWORK": "off"}, check=True)
                 build = json.loads((work / "windows-build.json").read_text(encoding="utf-8-sig"))
                 if build["qa_adapter"] or build["source_ref"] != source_ref:
                     raise ValueError("Installer provenance mismatch or QA adapter")
@@ -130,8 +152,8 @@ def main() -> None:
                 setup = f"steam-sage-companion-{args.version}-windows-amd64-setup.exe"
                 files[setup] = (work / setup).read_bytes()
             else:
-                env = {**os.environ, "GOOS": target, "GOARCH": "amd64", "CGO_ENABLED": "0"}
-                subprocess.run(go_build_args(args.version, source_ref, target, work / binary_name), cwd=ROOT, env=env, check=True)
+                env = {**os.environ, "GOOS": target, "GOARCH": "amd64", "CGO_ENABLED": "0", "GOWORK": "off"}
+                subprocess.run(go_build_args(args.version, source_ref, target, work / binary_name), cwd=source_root, env=env, check=True)
             payload = {**docs, binary_name: (work / binary_name).read_bytes()}
             if not windows:
                 payload["install.sh"] = inputs["packaging/linux/install.sh"]

@@ -80,7 +80,11 @@ Build from a clean explicit public Git ref with Go 1.26.8, Python 3 and PowerShe
 `python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output C:\candidate-one`.
 Repeat into a different empty directory and run
 `python scripts/verify_release.py C:\candidate-one C:\candidate-two --version 0.1.0-alpha.3 --source-ref FULL_PUBLIC_SHA`.
-The builder verifies pinned NSIS 3.13 before execution. It exports only Setup,
+The builder checks out the explicit source commit into a temporary tracked
+worktree before compiling, verifies its commit/tree identity, disables ambient Go
+workspaces, and removes only that temporary worktree afterward. Ignored local
+files cannot enter Go's embedded assets. It verifies pinned NSIS 3.13 before
+execution and exports only Setup,
 portable ZIP, allowlisted public source ZIP and SHA256SUMS. QA adapters and build
 scratch files never enter the distributable directory. CI records its actual
 checkout (possibly a PR merge); publication requires an explicit merged public ref.
