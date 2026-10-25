@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +45,18 @@ func TestWindowsRejectOtherSIDAndBroadDescriptors(t *testing.T) {
 }
 func TestWindowsCanonicalPathsAndLayoutUseKnownFolders(t *testing.T) {
 	root := t.TempDir()
+	// Windows CI's temp root may contain RUNNER~1. Resolve the fixture's existing
+	// root independently, while passing its original alias into the real layout.
+	physicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{root, strings.ToLower(root)} {
+		got, err := CanonicalDir(alias)
+		if err != nil || got != physicalRoot {
+			t.Fatalf("canonical fixture root: input %q got %q want %q; error %v", alias, got, physicalRoot, err)
+		}
+	}
 	old := knownFolderPath
 	t.Cleanup(func() { knownFolderPath = old })
 	local := filepath.Join(root, "用户 Local")
@@ -65,17 +78,17 @@ func TestWindowsCanonicalPathsAndLayoutUseKnownFolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	install := filepath.Join(local, "Programs", "Steam Sage Companion")
+	install := filepath.Join(physicalRoot, "用户 Local", "Programs", "Steam Sage Companion")
 
 	for _, tc := range []struct{ name, got, want string }{
 		{"InstallDir", layout.InstallDir, install},
 		{"Executable", layout.Executable, filepath.Join(install, "steam-sage-companion.exe")},
 		{"Uninstaller", layout.Uninstaller, filepath.Join(install, "Uninstall.exe")},
 		{"Ledger", layout.Ledger, filepath.Join(install, "package.ini")},
-		{"StartMenuDir", layout.StartMenuDir, filepath.Join(programs, "Steam Sage Companion")},
-		{"LaunchShortcut", layout.LaunchShortcut, filepath.Join(programs, "Steam Sage Companion", "Steam Sage Companion.lnk")},
-		{"SettingsShortcut", layout.SettingsShortcut, filepath.Join(programs, "Steam Sage Companion", "Companion Settings.lnk")},
-		{"ConfigDir", layout.ConfigDir, filepath.Join(roaming, "steam-sage-companion")},
+		{"StartMenuDir", layout.StartMenuDir, filepath.Join(physicalRoot, "用户 Programs", "Steam Sage Companion")},
+		{"LaunchShortcut", layout.LaunchShortcut, filepath.Join(physicalRoot, "用户 Programs", "Steam Sage Companion", "Steam Sage Companion.lnk")},
+		{"SettingsShortcut", layout.SettingsShortcut, filepath.Join(physicalRoot, "用户 Programs", "Steam Sage Companion", "Companion Settings.lnk")},
+		{"ConfigDir", layout.ConfigDir, filepath.Join(physicalRoot, "用户 Roaming", "steam-sage-companion")},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s: got %q; want %q (fixture root %q)", tc.name, tc.got, tc.want, root)
@@ -84,8 +97,9 @@ func TestWindowsCanonicalPathsAndLayoutUseKnownFolders(t *testing.T) {
 
 	custom := filepath.Join(root, "自定义 settings")
 	layout, err = LayoutFor(custom)
-	if err != nil || layout.ConfigDir != custom || layout.InstallDir != install {
-		t.Fatalf("custom layout: ConfigDir got %q want %q; InstallDir got %q want %q; error %v", layout.ConfigDir, custom, layout.InstallDir, install, err)
+	wantConfig := filepath.Join(physicalRoot, "自定义 settings")
+	if err != nil || layout.ConfigDir != wantConfig || layout.InstallDir != install {
+		t.Fatalf("custom layout: ConfigDir got %q want %q; InstallDir got %q want %q; error %v", layout.ConfigDir, wantConfig, layout.InstallDir, install, err)
 	}
 }
 func TestWindowsCanonicalDirRejectsReparseAncestor(t *testing.T) {
