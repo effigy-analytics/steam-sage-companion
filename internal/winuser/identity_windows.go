@@ -1,5 +1,12 @@
 package winuser
 
-import "errors"
+import "golang.org/x/sys/windows"
 
-func CurrentSID() (string, error) { return "", errors.New("SID identity is not implemented") }
+// CurrentSID identifies the process user, including when its default owner is a group.
+func CurrentSID() (string, error) {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return "", err
+	}
+	return user.User.Sid.String(), nil
+}

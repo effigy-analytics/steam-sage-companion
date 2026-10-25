@@ -16,7 +16,7 @@ func TestMultipleAccountsRequireChoice(t *testing.T) {
 		os.MkdirAll(dir, 0700)
 		os.WriteFile(filepath.Join(dir, "cloud-storage-namespace-1.json"), []byte(`[]`), 0600)
 	}
-	store, _ := config.Open(t.TempDir())
+	store, _ := config.Open(filepath.Join(t.TempDir(), "settings"))
 	a, err := New(store, []string{root})
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestAccountChangeRevokesTokens(t *testing.T) {
 	for _, id := range []string{"1", "2"} {
 		os.MkdirAll(filepath.Join(root, "userdata", id), 0700)
 	}
-	store, _ := config.Open(t.TempDir())
+	store, _ := config.Open(filepath.Join(t.TempDir(), "settings"))
 	a, _ := New(store, []string{root})
 	a.SelectAccount("76561197960265729")
 	store.Update(func(c *config.Config) error {
@@ -59,7 +59,7 @@ func TestSameAccountAcrossInstallationsSelectsAndRemembersSource(t *testing.T) {
 		raw := fmt.Sprintf(`[["user-collections.done",{"value":%q}]]`, fmt.Sprintf(`{"id":"done","name":"Completed","added":[%d],"removed":[]}`, i+1))
 		os.WriteFile(filepath.Join(dir, "cloud-storage-namespace-1.json"), []byte(raw), 0600)
 	}
-	store, _ := config.Open(t.TempDir())
+	store, _ := config.Open(filepath.Join(t.TempDir(), "settings"))
 	a, _ := New(store, roots)
 	if err := a.SelectAccount("76561197960265729"); err == nil {
 		t.Fatal("ambiguous account silently picked a source")

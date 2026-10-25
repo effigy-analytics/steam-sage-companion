@@ -194,10 +194,7 @@ func serveWithOpen(parent context.Context, dir string, extraOrigins []string, op
 		executable = install.StartupExecutable(executable, paths)
 	}
 	bridgeServer := bridge.New(bridge.Config{OpenBrowser: platform.OpenBrowserObserved, Store: store, Version: version, ExtraOrigins: extraOrigins, Accounts: application.Accounts, OnSelect: application.SelectAccount, OnSetRoot: application.AddRoot, OnStop: cancel, OnStartup: func(enabled bool) error {
-		if err := platform.SetStartup(enabled, executable, dir); err != nil {
-			return err
-		}
-		return store.Update(func(c *config.Config) error { c.Startup = enabled; return nil })
+		return setStartupPreference(enabled, executable, dir, store)
 	}, OnChooseRoot: func() error {
 		go func() {
 			pickerCtx, stop := context.WithTimeout(ctx, 2*time.Minute)

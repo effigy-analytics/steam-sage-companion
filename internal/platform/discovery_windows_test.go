@@ -2,6 +2,7 @@ package platform
 
 import (
 	"errors"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"reflect"
 	"testing"
@@ -40,7 +41,7 @@ func TestWindowsSteamDeniedOrEmptyRegistryUsesOnlyKnownFallbacks(t *testing.T) {
 		if root == registry.CURRENT_USER {
 			return "", nil
 		}
-		return "", registry.ErrNotExist
+		return "", windows.ERROR_ACCESS_DENIED
 	}
 	steamEnvironment = func(name string) string {
 		switch name {

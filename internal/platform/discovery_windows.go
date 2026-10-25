@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -20,18 +21,34 @@ var steamEnvironment = os.Getenv
 
 func SteamRoots() []string {
 	var roots []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		if !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
+			return
+		}
+		path = filepath.Clean(path)
+		identity := strings.ToLower(path)
+		if !seen[identity] {
+			seen[identity] = true
+			roots = append(roots, path)
+		}
+	}
 	for _, location := range []struct {
 		root       registry.Key
 		path, name string
-	}{{registry.CURRENT_USER, `Software\Valve\Steam`, "SteamPath"}, {registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Valve\Steam`, "InstallPath"}, {registry.LOCAL_MACHINE, `SOFTWARE\Valve\Steam`, "InstallPath"}} {
-		value, err := readSteamRegistry(location.root, location.path, location.name, registry.QUERY_VALUE)
-		if err == nil && value != "" {
-			roots = append(roots, value)
+		view       uint32
+	}{
+		{registry.CURRENT_USER, `Software\Valve\Steam`, "SteamPath", registry.WOW64_64KEY},
+		{registry.LOCAL_MACHINE, `SOFTWARE\Valve\Steam`, "InstallPath", registry.WOW64_32KEY},
+		{registry.LOCAL_MACHINE, `SOFTWARE\Valve\Steam`, "InstallPath", registry.WOW64_64KEY},
+	} {
+		if value, err := readSteamRegistry(location.root, location.path, location.name, registry.QUERY_VALUE|location.view); err == nil {
+			add(value)
 		}
 	}
 	for _, name := range []string{"ProgramFiles(x86)", "ProgramFiles"} {
 		if base := steamEnvironment(name); base != "" {
-			roots = append(roots, filepath.Join(base, "Steam"))
+			add(filepath.Join(base, "Steam"))
 		}
 	}
 	return roots
