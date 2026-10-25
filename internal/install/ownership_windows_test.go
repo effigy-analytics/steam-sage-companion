@@ -209,6 +209,19 @@ func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testin
 				tail = tail[len(tail)-16:]
 			}
 			t.Logf("raw registry diagnostic: supplied=%d queried=%d kind=%d sizeErr=%v returned=%d kind=%d readErr=%v tail=%x", len(raw), storedSize, storedKind, sizeErr, returnedSize, returnedKind, probeErr, tail)
+			if probeErr != nil || returnedSize < 0 || returnedSize > len(probe) {
+				t.Fatalf("cannot inspect actual fixture bytes: %v", probeErr)
+			}
+			if label == "missing terminator" && bytes.Equal(probe[:returnedSize], append(append([]byte{}, raw...), 0, 0)) {
+				// This Windows version stores a canonical NUL-terminated REG_SZ.
+				// Ownership follows stored bytes, not the malformed writer intent.
+				value, present, err := readValue(managedValue{key: uninstallRegistry, name: "DisplayName", wanted: "owned"})
+				if err != nil || !present || value != "o" {
+					t.Fatalf("OS-normalized value did not decode exactly: %q %v", value, err)
+				}
+				t.Log("Win32 normalized the writer input; canonical stored string decoded")
+				return
+			}
 			_, present, err := readValue(managedValue{key: uninstallRegistry, name: "DisplayName", wanted: "owned"})
 			if err == nil || !present {
 				t.Fatalf("malformed or changed raw value became an owned string: present=%v err=%v", present, err)

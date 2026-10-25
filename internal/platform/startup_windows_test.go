@@ -166,6 +166,19 @@ func TestWindowsStartupPreservesLossyOrOversizeRawRegistryValues(t *testing.T) {
 					tail = tail[len(tail)-16:]
 				}
 				t.Logf("raw registry diagnostic: supplied=%d queried=%d kind=%d sizeErr=%v returned=%d kind=%d readErr=%v tail=%x", len(raw), storedSize, storedKind, sizeErr, returnedSize, returnedKind, probeErr, tail)
+				if probeErr != nil || returnedSize < 0 || returnedSize > len(probe) {
+					t.Fatalf("cannot inspect actual fixture bytes: %v", probeErr)
+				}
+				if label == "missing terminator" && bytes.Equal(probe[:returnedSize], append(append([]byte{}, raw...), 0, 0)) {
+					// The OS stored a valid command; don't mistake writer intent
+					// for an actually changed or malformed registration.
+					registration, err := readStartup(key)
+					if err != nil || !registration.present || registration.command != fixtureCommand {
+						t.Fatalf("OS-normalized command did not decode exactly: %#v %v", registration, err)
+					}
+					t.Log("Win32 normalized the writer input; canonical stored command decoded")
+					return
+				}
 				called := false
 				err := SetStartupTransaction(enabled, fixtureEXE, fixtureConfig, func() error { called = true; return nil })
 				if err == nil || called {
