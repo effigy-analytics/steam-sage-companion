@@ -231,7 +231,7 @@ func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testin
 }
 
 func TestWindowsInspectorEnumerationIsFiniteAndConservative(t *testing.T) {
-	for _, scenario := range []string{"empty", "install-extra", "menu-extra", "values-extra", "subkey", "directory-error", "values-error", "subkey-error"} {
+	for _, scenario := range []string{"empty", "install-extra", "menu-extra", "values-extra", "long-value-name", "unicode-value-name", "subkey", "directory-error", "values-error", "subkey-error"} {
 		t.Run(scenario, func(t *testing.T) {
 			l := fixtureLayout(t)
 			for _, dir := range []string{l.InstallDir, l.StartMenuDir} {
@@ -260,6 +260,14 @@ func TestWindowsInspectorEnumerationIsFiniteAndConservative(t *testing.T) {
 					if err := key.SetStringValue(string(rune('a'+i)), "keep"); err != nil {
 						t.Fatal(err)
 					}
+				}
+			case "long-value-name", "unicode-value-name":
+				name := strings.Repeat("x", 200)
+				if scenario == "unicode-value-name" {
+					name = "未知 雪"
+				}
+				if err := key.SetStringValue(name, "keep"); err != nil {
+					t.Fatal(err)
 				}
 			case "subkey":
 				child, _, err := registry.CreateKey(key, "keep", registry.ALL_ACCESS)

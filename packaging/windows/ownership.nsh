@@ -76,34 +76,49 @@
 !endif
 !macroend
 
+!macro DeclareFileState ID
+  Var Moved_${ID}
+  Var Created_${ID}
+!macroend
+!macro ResetFileState ID
+  StrCpy $Moved_${ID} 0
+  StrCpy $Created_${ID} 0
+!macroend
+
 !macro ReplaceFile ID DEST
   ReadINIStr $0 "$Stage\before.ini" "${ID}" "status"
   ${If} $0 == "owned"
     ClearErrors
     Rename "${DEST}" "$Stage\${ID}.old"
     IfErrors install_failed
+    ; Memory is the rollback authority. A failed journal must not strand the
+    ; backup that Rename just created.
+    StrCpy $Moved_${ID} 1
+    ClearErrors
     !insertmacro WriteJournal ${ID} old
+    IfErrors install_failed
   ${ElseIf} $0 != "missing"
     Goto install_failed
   ${EndIf}
-  ; Mark the intended creation before CopyFiles, whose failure may leave a prefix.
+  ClearErrors
   !insertmacro WriteJournal ${ID} new
+  IfErrors install_failed
+  ; CopyFiles can leave a prefix even on failure; record intent in memory first.
+  StrCpy $Created_${ID} 1
   ClearErrors
   CopyFiles /SILENT "$Stage\${ID}.new" "${DEST}"
   IfErrors install_failed
 !macroend
 
 !macro RestoreFile ID DEST
-  ReadINIStr $0 "$Stage\transaction.ini" "${ID}" "new"
-  ${If} $0 == "yes"
+  ${If} $Created_${ID} == 1
     ClearErrors
     Delete "${DEST}"
     ${If} ${Errors}
       StrCpy $RollbackError 1
     ${EndIf}
   ${EndIf}
-  ReadINIStr $0 "$Stage\transaction.ini" "${ID}" "old"
-  ${If} $0 == "yes"
+  ${If} $Moved_${ID} == 1
     ClearErrors
     Rename "$Stage\${ID}.old" "${DEST}"
     ${If} ${Errors}

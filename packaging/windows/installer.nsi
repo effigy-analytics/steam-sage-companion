@@ -44,6 +44,13 @@ Var OldUninstall
 Var OldLocation
 Var LedgerMoved
 Var LedgerCommitted
+!insertmacro DeclareFileState exe
+!insertmacro DeclareFileState uninstaller
+!insertmacro DeclareFileState license
+!insertmacro DeclareFileState notices
+!insertmacro DeclareFileState release
+!insertmacro DeclareFileState launch
+!insertmacro DeclareFileState settings
 !ifdef QA_ROOT
 Var QA_JournalWrites
 Var QA_JournalLock
@@ -150,6 +157,22 @@ Function ${PREFIX}.onInit
     StrCpy $Stage "${QA_ROOT}\stale.recovery"
   ${EndIf}
 !endif
+  ; Reserve the actual recovery directory exclusively. Existing candidates,
+  ; including private old evidence, are never adopted or repaired. The owner-
+  ; only protected inheritable DACL applies at the first filesystem operation.
+  StrCpy $3 "O:$OwnerSID"
+  StrCpy $3 "$3D:P(A;OICI;FA;;;$OwnerSID)"
+  System::Call 'advapi32::ConvertStringSecurityDescriptorToSecurityDescriptorW(w r3, i 1, *p.r0, p 0) i.r1'
+  StrCmp $1 0 initialization_failed
+  System::Call '*(&l4, p r0, i 0) p.r2'
+  ${If} $2 == 0
+    System::Call 'kernel32::LocalFree(p r0)'
+    Goto initialization_failed
+  ${EndIf}
+  System::Call 'kernel32::CreateDirectoryW(w "$Stage", p r2) i.r1'
+  System::Free $2
+  System::Call 'kernel32::LocalFree(p r0)'
+  StrCmp $1 0 initialization_failed
   Return
 initialization_failed:
   SetErrorLevel 1
@@ -160,6 +183,13 @@ FunctionEnd
 !insertmacro Initialize "un"
 
 Section "Install"
+  !insertmacro ResetFileState exe
+  !insertmacro ResetFileState uninstaller
+  !insertmacro ResetFileState license
+  !insertmacro ResetFileState notices
+  !insertmacro ResetFileState release
+  !insertmacro ResetFileState launch
+  !insertmacro ResetFileState settings
   StrCpy $RegistryTouched 0
   StrCpy $RollbackError 0
   StrCpy $WasRunning 0

@@ -223,26 +223,25 @@ func writePrivate(stage, name string, raw []byte) error {
 	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
-// Read adapters expose requested enumeration limits to native fixture tests.
-var readPackageDirectory = func(path string, count int) ([]os.DirEntry, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return f.ReadDir(count)
-}
-var readPackageValueNames = func(key registry.Key, count int) ([]string, error) { return key.ReadValueNames(count) }
-var readPackageSubkeyNames = func(key registry.Key, count int) ([]string, error) { return key.ReadSubKeyNames(count) }
-
 func unknownItems(l winuser.Layout) bool {
 	allowed := map[string]bool{strings.ToLower(l.Ledger): true}
 	for _, f := range packageFiles(l) {
 		allowed[strings.ToLower(f.path)] = true
 	}
 	for _, dir := range []string{l.InstallDir, l.StartMenuDir} {
-		entries, err := readPackageDirectory(dir, -1)
-		if err != nil && !os.IsNotExist(err) {
+		// One entry beyond this directory's fixed allowlist is enough to
+		// establish leftovers. Never enumerate an entire user collection.
+		limit := 1
+		for path := range allowed {
+			if strings.EqualFold(filepath.Dir(path), dir) {
+				limit++
+			}
+		}
+		entries, err := readPackageDirectory(dir, limit)
+		if err != nil && !errors.Is(err, io.EOF) && !os.IsNotExist(err) {
+			return true
+		}
+		if len(entries) >= limit {
 			return true
 		}
 		for _, entry := range entries {
@@ -259,8 +258,11 @@ func unknownItems(l winuser.Layout) bool {
 		return true
 	}
 	defer key.Close()
-	names, err := readPackageValueNames(key, -1)
-	if err != nil {
+	names, err := readPackageValueNames(key, uninstallValueLimit)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return true
+	}
+	if len(names) >= uninstallValueLimit {
 		return true
 	}
 	known := map[string]bool{}
@@ -274,8 +276,8 @@ func unknownItems(l winuser.Layout) bool {
 			return true
 		}
 	}
-	children, err := readPackageSubkeyNames(key, -1)
-	return err != nil || len(children) > 0
+	children, err := readPackageSubkeyNames(key, 1)
+	return (err != nil && !errors.Is(err, io.EOF)) || len(children) > 0
 }
 
 // InspectPackage reads fixed product destinations and writes only private staging
