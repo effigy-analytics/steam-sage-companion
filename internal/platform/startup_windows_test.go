@@ -1,12 +1,16 @@
 package platform
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"testing"
 	"time"
+	"unicode/utf16"
+	"unsafe"
 )
 
 func fixtureStartup(t *testing.T) registry.Key {
@@ -128,5 +132,43 @@ func TestWindowsStartupRollbackPreservesConcurrentChange(t *testing.T) {
 	}
 	if got := startupValue(t, key); got != foreign {
 		t.Fatalf("rollback erased concurrent change: %q", got)
+	}
+}
+
+func TestWindowsStartupPreservesLossyOrOversizeRawRegistryValues(t *testing.T) {
+	words := utf16.Encode([]rune(fixtureCommand))
+	rawWords := func(words []uint16) []byte {
+		raw := make([]byte, len(words)*2)
+		for i, u := range words {
+			binary.LittleEndian.PutUint16(raw[2*i:], u)
+		}
+		return raw
+	}
+	suffix := append(append([]uint16{}, words...), 0, 'x', 0)
+	malformed := append(append([]uint16{}, words...), 0, 0xd800, 0)
+	oversized := append(append([]uint16{}, words...), make([]uint16, 9000)...)
+	cases := map[string][]byte{"embedded-NUL suffix": rawWords(suffix), "invalid UTF16": rawWords(malformed), "missing terminator": rawWords(words), "oversize": rawWords(oversized)}
+	for label, raw := range cases {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%v", label, enabled), func(t *testing.T) {
+				key := fixtureStartup(t)
+				name, _ := windows.UTF16PtrFromString("SteamSageCompanion")
+				set := windows.NewLazySystemDLL("advapi32.dll").NewProc("RegSetValueExW")
+				code, _, _ := set.Call(uintptr(key), uintptr(unsafe.Pointer(name)), 0, uintptr(registry.SZ), uintptr(unsafe.Pointer(&raw[0])), uintptr(len(raw)))
+				if code != 0 {
+					t.Fatalf("write synthetic REG_SZ: %d", code)
+				}
+				called := false
+				err := SetStartupTransaction(enabled, fixtureEXE, fixtureConfig, func() error { called = true; return nil })
+				if err == nil || called {
+					t.Fatalf("malformed registration accepted: err=%v persistCalled=%v", err, called)
+				}
+				after := make([]byte, len(raw))
+				n, kind, err := key.GetValue("SteamSageCompanion", after)
+				if err != nil || kind != registry.SZ || n != len(raw) || !bytes.Equal(raw, after) {
+					t.Fatalf("changed registration was not preserved byte-for-byte: %v", err)
+				}
+			})
+		}
 	}
 }

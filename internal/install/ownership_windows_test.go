@@ -192,6 +192,9 @@ func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testin
 		"odd byte count":      {'o', 0, 0},
 		"missing terminator":  {'o', 0},
 	}
+	oversize := make([]byte, 20000)
+	copy(oversize, []byte{'o', 0, 'w', 0, 'n', 0, 'e', 0, 'd', 0, 0, 0})
+	cases["oversize hidden suffix"] = oversize
 	for label, raw := range cases {
 		t.Run(label, func(t *testing.T) {
 			code, _, _ := set.Call(uintptr(key), uintptr(unsafe.Pointer(name)), 0, uintptr(registry.SZ), uintptr(unsafe.Pointer(&raw[0])), uintptr(len(raw)))
