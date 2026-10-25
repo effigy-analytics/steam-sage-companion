@@ -18,8 +18,30 @@ try {
     $cache = Join-Path ([IO.Path]::GetTempPath()) ('steam-sage-nsis-' + $manifest.sha256)
     New-Item -ItemType Directory -Force $cache | Out-Null
     $zip = Join-Path $cache 'nsis.zip'
-    if (-not (Test-Path $zip)) { Invoke-WebRequest $manifest.url -OutFile $zip }
-    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256) { throw 'NSIS archive checksum mismatch' }
+    New-Item -ItemType Directory -Force $Output | Out-Null
+    $downloads = [Collections.Generic.List[object]]::new()
+    $verified = $false
+    # Alternate official SourceForge transport is acceptable only for identical pinned bytes.
+    $urls = @($manifest.url, 'https://psychz.dl.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip')
+    foreach ($url in $urls) {
+        $record = [ordered]@{ url=$url; expected_sha256=$manifest.sha256 }
+        try {
+            $response = Invoke-WebRequest $url -OutFile $zip -PassThru
+            $record.status = [int]$response.StatusCode
+            $record.final_url = [string]$response.BaseResponse.RequestMessage.RequestUri
+            $record.content_type = [string]$response.Headers['Content-Type']
+            $record.bytes = (Get-Item $zip).Length
+            $record.sha256 = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            $stream = [IO.File]::OpenRead($zip)
+            try { $prefix = [byte[]]::new(8); $n = $stream.Read($prefix, 0, 8); $record.first_bytes_hex = [Convert]::ToHexString($prefix, 0, $n) } finally { $stream.Dispose() }
+            $verified = $record.sha256 -eq $manifest.sha256
+        } catch { $record.error = $_.Exception.Message }
+        $downloads.Add($record)
+        $downloads | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $Output 'nsis-download.json') -Encoding utf8
+        Write-Host ($record | ConvertTo-Json -Compress)
+        if ($verified) { break }
+    }
+    if (-not $verified) { throw 'NSIS archive checksum mismatch; see nsis-download.json (unverified compiler was not executed)' }
     $toolDir = Join-Path $cache 'verified'
     # Re-extract only the hash-verified archive before executing the compiler.
     Expand-Archive $zip -DestinationPath $toolDir -Force
