@@ -23,6 +23,8 @@ jobs:
       - name: Format
         shell: bash
         run: test -z "$(gofmt -l cmd internal)"
+      - name: Release builder regressions
+        run: python -m unittest discover -s scripts -p test_build_release.py
       - run: go mod verify
       - run: go vet ./...
       - name: Allow test user namespaces on the ephemeral Ubuntu runner
@@ -65,3 +67,23 @@ jobs:
         with:
           name: windows-boundary-evidence
           path: ${{ runner.temp }}/boundary-evidence
+      - name: Build clean production candidates twice and inspect contents
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $one = Join-Path $env:RUNNER_TEMP 'public-candidate-one'
+          $two = Join-Path $env:RUNNER_TEMP 'public-candidate-two'
+          python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $one
+          if ($LASTEXITCODE) { throw 'First public candidate failed' }
+          python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $two
+          if ($LASTEXITCODE) { throw 'Second public candidate failed' }
+          python scripts/verify_release.py $one $two --version 0.1.0-alpha.3 --source-ref (git rev-parse HEAD) --report "$env:RUNNER_TEMP/repeatability.json"
+          if ($LASTEXITCODE) { throw 'Candidate contents or repeatability failed' }
+      - name: Retain clean public candidates and repeatability evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-public-candidate
+          path: |
+            ${{ runner.temp }}/public-candidate-one
+            ${{ runner.temp }}/repeatability.json

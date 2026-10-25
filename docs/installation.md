@@ -1,4 +1,9 @@
-# Linux alpha installation
+# Installation
+
+Windows x64: follow the [alpha.3 Setup preview guide](windows-preview.md).
+Windows 10/11 desktop validation remains pending. No terminal is needed.
+
+## Linux alpha installation
 
 This is the Linux x64 alpha. Download it from the project's
 [GitHub Releases](https://github.com/effigy-analytics/steam-sage-companion/releases)
@@ -52,15 +57,14 @@ unrelated port occupant.
 
 `serve --background` remains the foreground service command used by optional
 start-at-login. `settings` and its legacy alias `open` reuse the running helper to
-open authenticated local controls. With no helper running they run the helper in
-the foreground and open controls. Use `launch` for detached operation.
+open authenticated local controls. Cold `settings` starts the detached helper;
+legacy `open` retains foreground compatibility.
 `--config-dir <absolute-directory>` isolates an experimental setup;
 startup/launcher entries preserve that directory. `--allow-origin <exact-origin>`
 explicitly enables a separate development-site pairing. Avoid enabling arbitrary
 sites. There is no need to change browser security flags or install a certificate.
 
-Windows is experimental and unverified until actual installation/browser testing
-is recorded. A cross-compiled executable is not a supported Windows installer.
+Windows alpha.3 is a preview; native CI does not establish Windows 10/11 desktop support.
 macOS, other architectures and Steam Deck's handheld experience are not claimed.
 
 Validation on Linux: Chromium 151 completed production-HTTPS-origin pairing,
