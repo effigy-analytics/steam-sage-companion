@@ -34,7 +34,8 @@ func run(options Options, openBrowser func(string) error) error {
 		return errors.New("cannot start the installed companion; reinstall it and try again")
 	}
 	exited := make(chan error, 1)
-	go func() { exited <- command.Wait() }()
+	go func(result chan<- error) { result <- command.Wait() }(exited)
+	childExited := false
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	probes := time.NewTicker(50 * time.Millisecond)
@@ -42,12 +43,21 @@ func run(options Options, openBrowser func(string) error) error {
 	for {
 		select {
 		case <-exited:
+			childExited = true
+			exited = nil
 			// Another simultaneous launch may have won the activation socket.
 			if requestReady(options) == nil {
 				return openDestination(options, openBrowser)
 			}
-			return errors.New("companion could not start; its local port may be occupied or its settings unavailable")
+			if !waitAfterChildExit {
+				return errors.New("companion could not start; its local port may be occupied or its settings unavailable")
+			}
+			// Windows can reject the losing child while the owned winner is
+			// still initializing. Keep probing within the original timer budget.
 		case <-timeout.C:
+			if childExited {
+				return errors.New("companion could not start; its local port may be occupied or its settings unavailable")
+			}
 			// Only this launcher's child may be terminated, never an existing listener.
 			command.Process.Kill()
 			<-exited

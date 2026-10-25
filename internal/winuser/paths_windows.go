@@ -23,6 +23,14 @@ func CanonicalDir(path string) (string, error) {
 	if path == "" || strings.ContainsRune(path, 0) || strings.HasPrefix(path, `\\?\`) || strings.HasPrefix(path, `\\.\`) {
 		return "", errors.New("invalid Windows directory")
 	}
+	// filepath.Abs calls GetFullPathNameW on Windows, which can erase trailing
+	// dots/spaces before the filesystem is queried. Inspect the caller's spelling
+	// first; "." and ".." remain deliberate navigation components.
+	for _, component := range strings.FieldsFunc(path, func(r rune) bool { return r == '\\' || r == '/' }) {
+		if component != "." && component != ".." && (strings.HasSuffix(component, ".") || strings.HasSuffix(component, " ")) {
+			return "", errors.New("ambiguous Windows directory component")
+		}
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err

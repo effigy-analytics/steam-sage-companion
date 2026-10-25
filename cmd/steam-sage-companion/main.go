@@ -76,15 +76,17 @@ func main() {
 	}
 	if command == "serve" || command == "open" || command == "launch" || command == "settings" || command == "stop" {
 		flags := flag.NewFlagSet("serve", flag.ExitOnError)
-		base, err := os.UserConfigDir()
-		if err != nil {
-			reportCommandError(command, false, errors.New("Cannot locate per-user settings"))
-			os.Exit(1)
-		}
-		dir := flags.String("config-dir", filepath.Join(base, "steam-sage-companion"), "per-user settings directory")
+		dir := flags.String("config-dir", "", "per-user settings directory")
 		background := flags.Bool("background", false, "run without opening controls")
 		allowOrigin := flags.String("allow-origin", "", "explicit additional Sage origin (requires separate pairing)")
 		flags.Parse(rest)
+		resolvedDir, err := commandConfigDir(*dir, os.UserConfigDir)
+		if err != nil {
+			reportCommandError(command, *background, errors.New("Cannot locate per-user settings"))
+			os.Exit(1)
+		}
+		*dir = resolvedDir
+
 		var origins []string
 		if *allowOrigin != "" {
 			u, e := url.Parse(*allowOrigin)

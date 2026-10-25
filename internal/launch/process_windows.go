@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const waitAfterChildExit = true
+
 func configureChild(command *exec.Cmd) {
 	// No console is inherited or created; the daemon also has its own process
 	// group, independent of the launcher's lifetime. Nil streams stay detached.

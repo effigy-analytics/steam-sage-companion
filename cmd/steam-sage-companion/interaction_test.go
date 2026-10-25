@@ -1,10 +1,25 @@
 package main
 
 import (
+	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/effigy-analytics/steam-sage-companion/internal/launch"
 )
+
+func TestExplicitConfigDoesNotResolveAmbientProfile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "owned synthetic config")
+	got, err := commandConfigDir(dir, func() (string, error) { return "", errors.New("ambient profile unavailable") })
+	if err != nil || got != dir {
+		t.Fatal("explicit config still depended on ambient profile:", err)
+	}
+	base := t.TempDir()
+	got, err = commandConfigDir("", func() (string, error) { return base, nil })
+	if err != nil || got != filepath.Join(base, "steam-sage-companion") {
+		t.Fatal("default per-user config changed")
+	}
+}
 
 func TestSettingsUsesDetachedLaunchDestination(t *testing.T) {
 	for _, tc := range []struct {
