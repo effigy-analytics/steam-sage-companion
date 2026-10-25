@@ -96,6 +96,14 @@ func TestWindowsActivationNamesSeparateUsersAndCanonicalizeConfig(t *testing.T) 
 	}
 }
 
+func TestWindowsActivationOpenCallbackCanReenterReadiness(t *testing.T) {
+	var dir string
+	dir, _, _ = windowsActivation(t, func() error { return RequestReady(dir) })
+	if err := RequestOpen(dir); err != nil {
+		t.Fatal("open callback could not reenter activation readiness:", err)
+	}
+}
+
 func TestWindowsActivationRejectsWrongPeerSIDBothDirections(t *testing.T) {
 	var opened atomic.Int32
 	dir, _, _ := windowsActivation(t, func() error { opened.Add(1); return nil })
