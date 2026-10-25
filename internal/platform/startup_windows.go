@@ -1,13 +1,16 @@
 package platform
 
 import (
+	"errors"
 	"syscall"
 
 	"golang.org/x/sys/windows/registry"
 )
 
+var startupRegistryPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+
 func SetStartup(enabled bool, executable string, configDir ...string) error {
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, startupRegistryPath, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -24,4 +27,8 @@ func SetStartup(enabled bool, executable string, configDir ...string) error {
 		args += " --config-dir " + syscall.EscapeArg(configDir[0])
 	}
 	return key.SetStringValue("SteamSageCompanion", args)
+}
+
+func SetStartupTransaction(enabled bool, executable, configDir string, persist func() error) error {
+	return errors.New("startup transaction is not implemented")
 }
