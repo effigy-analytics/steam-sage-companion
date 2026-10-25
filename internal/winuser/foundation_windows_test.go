@@ -66,13 +66,26 @@ func TestWindowsCanonicalPathsAndLayoutUseKnownFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	install := filepath.Join(local, "Programs", "Steam Sage Companion")
-	if layout.InstallDir != install || layout.Executable != filepath.Join(install, "steam-sage-companion.exe") || layout.Uninstaller != filepath.Join(install, "Uninstall.exe") || layout.Ledger != filepath.Join(install, "package.ini") || layout.StartMenuDir != filepath.Join(programs, "Steam Sage Companion") || layout.LaunchShortcut != filepath.Join(programs, "Steam Sage Companion", "Steam Sage Companion.lnk") || layout.SettingsShortcut != filepath.Join(programs, "Steam Sage Companion", "Companion Settings.lnk") || layout.ConfigDir != filepath.Join(roaming, "steam-sage-companion") {
-		t.Fatalf("incorrect independently derived layout: %+v", layout)
+
+	for _, tc := range []struct{ name, got, want string }{
+		{"InstallDir", layout.InstallDir, install},
+		{"Executable", layout.Executable, filepath.Join(install, "steam-sage-companion.exe")},
+		{"Uninstaller", layout.Uninstaller, filepath.Join(install, "Uninstall.exe")},
+		{"Ledger", layout.Ledger, filepath.Join(install, "package.ini")},
+		{"StartMenuDir", layout.StartMenuDir, filepath.Join(programs, "Steam Sage Companion")},
+		{"LaunchShortcut", layout.LaunchShortcut, filepath.Join(programs, "Steam Sage Companion", "Steam Sage Companion.lnk")},
+		{"SettingsShortcut", layout.SettingsShortcut, filepath.Join(programs, "Steam Sage Companion", "Companion Settings.lnk")},
+		{"ConfigDir", layout.ConfigDir, filepath.Join(roaming, "steam-sage-companion")},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %q; want %q (fixture root %q)", tc.name, tc.got, tc.want, root)
+		}
 	}
+
 	custom := filepath.Join(root, "自定义 settings")
 	layout, err = LayoutFor(custom)
 	if err != nil || layout.ConfigDir != custom || layout.InstallDir != install {
-		t.Fatalf("custom config changed product roots: %+v %v", layout, err)
+		t.Fatalf("custom layout: ConfigDir got %q want %q; InstallDir got %q want %q; error %v", layout.ConfigDir, custom, layout.InstallDir, install, err)
 	}
 }
 func TestWindowsCanonicalDirRejectsReparseAncestor(t *testing.T) {
