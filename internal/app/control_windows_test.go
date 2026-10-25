@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -344,5 +345,47 @@ func TestWindowsStopAndWaitHonorsOneOverallDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed < 4*time.Second || elapsed > 5500*time.Millisecond {
 		t.Fatalf("overall stop deadline: %s", elapsed)
+	}
+}
+
+// Package maintenance must distinguish genuine absence from an unverifiable peer.
+func TestWindowsMaintenancePreservesAbsentPipeCause(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RequestStopAndWait(dir, exe)
+	if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		t.Fatalf("absent pipe must retain its native cause for safe package handling: %v", err)
+	}
+}
+
+func TestWindowsMaintenanceDoesNotClassifyUnknownPeerAsAbsent(t *testing.T) {
+	dir, _, _ := windowsActivation(t, func() error { return nil })
+	err := RequestStopAndWait(dir, filepath.Join(t.TempDir(), "missing-image.exe"))
+	if err == nil || errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		t.Fatalf("invalid expected image is not proof of absent daemon: %v", err)
+	}
+	if err := RequestReady(dir); err != nil {
+		t.Fatal("unknown-image request disturbed owner:", err)
+	}
+}
+
+func TestWindowsMaintenanceBusyPipeIsNotAbsent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "busy")
+	name, err := windows.UTF16PtrFromString(activationName(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateNamedPipe(name, windows.PIPE_ACCESS_DUPLEX, windows.PIPE_TYPE_BYTE, 1, 1024, 1024, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+	exe, _ := os.Executable()
+	err = RequestStopAndWait(dir, exe)
+	if err == nil || errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		t.Fatalf("unresponsive pipe is not absent: %v", err)
 	}
 }
