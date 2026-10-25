@@ -8,6 +8,8 @@ $root = Join-Path ([IO.Path]::GetTempPath()) ('Sage QA 雪 café ' + [guid]::New
 New-Item -ItemType Directory $root | Out-Null
 $setup = & "$PSScriptRoot/build_windows_installer.ps1" -Version '0.1.0-alpha.3' -Output $Output -TestRoot $root
 $setup = @($setup)[-1]
+$upgrade = & "$PSScriptRoot/build_windows_installer.ps1" -Version '0.1.0-alpha.4' -Output (Join-Path $Output 'upgrade') -TestRoot $root
+$upgrade = @($upgrade)[-1]
 $payload = Join-Path $Output 'steam-sage-companion.exe'
 $install = Join-Path $root 'Programs/Steam Sage Companion'
 $stage = Join-Path $root 'inspection'
@@ -49,10 +51,11 @@ function Reset-Fixture {
 function Fresh {
     Reset-Fixture
     Assert ((Run $setup '/S') -eq 0) 'Fresh Setup failed'
+    Copy-Item (Join-Path $install 'Uninstall.exe') (Join-Path $root 'trusted-uninstaller.exe')
 }
 function Uninstall {
-    # _?= runs the real NSIS uninstaller synchronously from its installed fixture.
-    return Run (Join-Path $install 'Uninstall.exe') ('/S _?=' + $install)
+    # Execute the verified fixture copy synchronously, preserving normal NSIS temp-copy semantics.
+    return Run (Join-Path $root 'trusted-uninstaller.exe') ('/S _?=' + $install)
 }
 function Hash([string]$Path) { return (Get-FileHash $Path -Algorithm SHA256).Hash }
 Check 'GUI subsystem and requested user execution level' {
@@ -85,7 +88,7 @@ Check 'upgrade preserves pairing source startup and exact Unicode shortcut targe
     New-Item $run -Force | Out-Null
     $command = '"' + (Join-Path $install 'steam-sage-companion.exe') + '" serve --background --config-dir "' + $configDir + '"'
     Set-ItemProperty $run SteamSageCompanion $command
-    Assert ((Run $setup '/S') -eq 0) 'Upgrade failed'
+    Assert ((Run $upgrade '/S') -eq 0) 'Upgrade failed'
     Assert ((Hash $settings) -eq $before) 'Settings bytes changed'
     Assert ((Get-ItemPropertyValue $run SteamSageCompanion) -ceq $command) 'Startup changed'
     $shell = New-Object -ComObject WScript.Shell
@@ -111,17 +114,43 @@ foreach ($damage in @('changed', 'malformed', 'oversize', 'wrong-root', 'reparse
             }
         }
         $before = Hash (Join-Path $install 'steam-sage-companion.exe')
-        Assert ((Run $setup '/S') -ne 0) 'Accepted unsafe ledger/package'
+        Assert ((Run $upgrade '/S') -ne 0) 'Accepted unsafe ledger/package'
         Assert ((Hash (Join-Path $install 'steam-sage-companion.exe')) -eq $before) 'Changed prior helper'
         Assert (Test-Path $ledger) 'Removed unsafe ownership evidence'
     }
+}
+Check 'malformed ledger uninstall preserves all package files' {
+    Fresh
+    $ledger = Join-Path $install 'package.ini'
+    [IO.File]::WriteAllText($ledger, 'broken record')
+    $before = Hash (Join-Path $install 'steam-sage-companion.exe')
+    Assert ((Uninstall) -ne 0) 'Uninstall accepted damaged ownership'
+    Assert ((Hash (Join-Path $install 'steam-sage-companion.exe')) -eq $before) 'Uninstall deleted unverified helper'
+    Assert ([IO.File]::ReadAllText($ledger) -ceq 'broken record') 'Uninstall erased damaged ledger evidence'
+}
+Check 'changed uninstaller is preserved while trusted embedded inspector handles cleanup' {
+    Fresh
+    $uninstaller = Join-Path $install 'Uninstall.exe'
+    [IO.File]::AppendAllText($uninstaller, 'altered')
+    $before = Hash $uninstaller
+    Assert ((Uninstall) -ne 0) 'Changed uninstaller falsely reported clean'
+    Assert ((Hash $uninstaller) -eq $before) 'Changed uninstaller removed/replaced'
+    Assert (Test-Path (Join-Path $install 'package.ini')) 'Changed uninstaller evidence removed'
+}
+Check 'inspector refuses output outside private stage without creating settings' {
+    Reset-Fixture
+    $outside = Join-Path $root 'outside.ini'
+    $code = Run $payload ('package-check --operation preflight-install --stage-dir "' + $stage + '" --report "' + $outside + '"')
+    Assert ($code -ne 0) 'Inspector accepted report outside stage'
+    Assert (-not (Test-Path $outside)) 'Inspector wrote outside stage'
+    Assert (-not (Test-Path (Join-Path $root 'Config'))) 'Inspector initialized config'
 }
 Check 'locked file update retains prior ledger and working files' {
     Fresh
     $ledger = Hash (Join-Path $install 'package.ini')
     $exe = Hash (Join-Path $install 'steam-sage-companion.exe')
     $lock = [IO.File]::Open((Join-Path $install 'LICENSE'), 'Open', 'Read', 'Read')
-    try { Assert ((Run $setup '/S') -ne 0) 'Locked-file upgrade succeeded' } finally { $lock.Dispose() }
+    try { Assert ((Run $upgrade '/S') -ne 0) 'Locked-file upgrade succeeded' } finally { $lock.Dispose() }
     Assert ((Hash (Join-Path $install 'package.ini')) -eq $ledger) 'Prior ledger lost'
     Assert ((Hash (Join-Path $install 'steam-sage-companion.exe')) -eq $exe) 'Prior helper lost'
 }
@@ -130,8 +159,8 @@ Check 'ordinary failure after replacements restores files and registration' {
     $ledger = Hash (Join-Path $install 'package.ini')
     $exe = Hash (Join-Path $install 'steam-sage-companion.exe')
     $registration = Get-ItemPropertyValue (Join-Path $registry 'Uninstall') DisplayVersion
-    New-Item -ItemType File (Join-Path $root 'fail-after-files') | Out-Null
-    Assert ((Run $setup '/S') -ne 0) 'Injected transaction failure was ignored'
+    New-Item -ItemType File (Join-Path $root 'fail-after-registration') | Out-Null
+    Assert ((Run $upgrade '/S') -ne 0) 'Injected transaction failure was ignored'
     Assert ((Hash (Join-Path $install 'package.ini')) -eq $ledger) 'Prior ledger lost'
     Assert ((Hash (Join-Path $install 'steam-sage-companion.exe')) -eq $exe) 'Prior helper lost'
     Assert ((Get-ItemPropertyValue (Join-Path $registry 'Uninstall') DisplayVersion) -ceq $registration) 'Prior registration lost'
@@ -168,7 +197,7 @@ Check 'normal uninstall preserves settings and browser choice and removes owned 
 Check 'concurrent Setup and Uninstall reports busy without disturbing winning transaction' {
     Fresh
     New-Item -ItemType File (Join-Path $root 'hold-lock') | Out-Null
-    $winner = Start-Process $setup -ArgumentList '/S' -PassThru
+    $winner = Start-Process $upgrade -ArgumentList '/S' -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while (-not (Test-Path (Join-Path $root 'lock-held')) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     Assert (Test-Path (Join-Path $root 'lock-held')) 'Winner did not acquire operation lock'
