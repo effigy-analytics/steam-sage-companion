@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf16"
+	"unsafe"
 
 	"github.com/effigy-analytics/steam-sage-companion/internal/winuser"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -170,5 +172,36 @@ func TestWindowsInspectorRefusesProductStageAndExternalReport(t *testing.T) {
 	}
 	if _, err := os.Stat(external); !os.IsNotExist(err) {
 		t.Fatal("external report created")
+	}
+}
+
+// REG_SZ is raw bytes. GetStringValue silently truncates embedded NULs and
+// replaces malformed UTF-16, so it cannot establish exact package ownership.
+func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testing.T) {
+	fixtureLayout(t)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallRegistry, registry.SET_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	name, _ := windows.UTF16PtrFromString("DisplayName")
+	set := windows.NewLazySystemDLL("advapi32.dll").NewProc("RegSetValueExW")
+	cases := map[string][]byte{
+		"embedded NUL suffix": {'o', 0, 'w', 0, 'n', 0, 'e', 0, 'd', 0, 0, 0, 'x', 0, 0, 0},
+		"unpaired surrogate":  {0, 216, 0, 0},
+		"odd byte count":      {'o', 0, 0},
+		"missing terminator":  {'o', 0},
+	}
+	for label, raw := range cases {
+		t.Run(label, func(t *testing.T) {
+			code, _, _ := set.Call(uintptr(key), uintptr(unsafe.Pointer(name)), 0, uintptr(registry.SZ), uintptr(unsafe.Pointer(&raw[0])), uintptr(len(raw)))
+			if code != 0 {
+				t.Fatalf("write synthetic raw REG_SZ: %d", code)
+			}
+			_, present, err := readValue(managedValue{key: uninstallRegistry, name: "DisplayName", wanted: "owned"})
+			if err == nil || !present {
+				t.Fatalf("malformed or changed raw value became an owned string: present=%v err=%v", present, err)
+			}
+		})
 	}
 }
