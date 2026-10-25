@@ -18,6 +18,34 @@ function Wait-Ready {
     }
     throw 'Installed helper did not become ready'
 }
+function Dispatch-Diagnostics {
+    $record = [ordered]@{ associations=@(); owned_processes=@(); capture_exists=(Test-Path $opened); capture_lines=0 }
+    if ($record.capture_exists) { $record.capture_lines = @(Get-Content $opened -TotalCount 100).Count }
+    foreach ($scheme in @('http', 'https')) {
+        $choice = Get-ItemProperty ("HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$scheme\UserChoice") -Name ProgId -ErrorAction SilentlyContinue
+        $progID = if ($choice) { [string]$choice.ProgId } else { '' }
+        $entry = [ordered]@{ scheme=$scheme; prog_id=$progID; query=[SageBoundary.ProfileProbe]::Association($scheme); classes=@() }
+        foreach ($name in @($scheme, $progID)) {
+            if ($name -notmatch '^[A-Za-z0-9._-]{1,128}$') { continue }
+            foreach ($hive in @('HKEY_CURRENT_USER\Software\Classes', 'HKEY_CLASSES_ROOT')) {
+                $key = Get-Item ("Registry::$hive\$name\shell\open\command") -ErrorAction SilentlyContinue
+                if ($key) {
+                    $command = [string]$key.GetValue('')
+                    $delegate = [string]$key.GetValue('DelegateExecute')
+                    $entry.classes += @{ hive=$hive; name=$name; command=$command.Substring(0, [Math]::Min($command.Length, 4096)); delegate_execute=$delegate.Substring(0, [Math]::Min($delegate.Length, 256)) }
+                }
+            }
+        }
+        $record.associations += $entry
+    }
+    foreach ($p in (Get-CimInstance Win32_Process)) {
+        $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+        if ($owner -and $owner.Sid -eq $identity.User.Value -and $record.owned_processes.Count -lt 64) {
+            $record.owned_processes += @{ name=$p.Name; pid=$p.ProcessId; executable=$p.ExecutablePath }
+        }
+    }
+    $record | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $evidence 'dispatch-diagnostics.json') -Encoding utf8
+}
 function Wait-URL([string]$Prefix) {
     for ($i=0; $i -lt 200; $i++) {
         if (Test-Path $opened) {
@@ -26,6 +54,7 @@ function Wait-URL([string]$Prefix) {
         }
         Start-Sleep -Milliseconds 50
     }
+    Dispatch-Diagnostics
     throw 'Native URL handler did not receive the expected destination (private URL omitted)'
 }
 function OwnedPID {
@@ -92,6 +121,9 @@ try {
         Set-ItemProperty $key -Name 'URL Protocol' -Value ''
         Set-Item -Path "$key\shell\open\command" -Value ('"' + $Root + '\capture.exe" "' + $opened + '" "%1"')
     }
+    Assert ((Run (Join-Path $Root 'capture.exe') ('"' + $opened + '" https://example.invalid/synthetic-capture-smoke')) -eq 0) 'Capture fixture direct smoke failed'
+    Assert ((Wait-URL 'https://example.invalid/synthetic-capture-smoke') -eq 'https://example.invalid/synthetic-capture-smoke') 'Capture fixture direct smoke did not record synthetic URL'
+    Passed 'synthetic capture fixture direct smoke'
     $steam = Join-Path $Root 'Steam synthetic 漢字'
     $source = Join-Path $steam 'userdata/39734273/config/cloudstorage/cloud-storage-namespace-1.json'
     New-Item -ItemType Directory -Force (Split-Path $source -Parent) | Out-Null

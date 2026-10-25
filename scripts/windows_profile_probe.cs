@@ -10,6 +10,13 @@ namespace SageBoundary {
         static extern int SHGetKnownFolderPath(ref Guid id, uint flags, IntPtr token, out IntPtr path);
         [DllImport("userenv.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern bool GetUserProfileDirectoryW(IntPtr token, StringBuilder path, ref uint size);
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern int AssocQueryStringW(uint flags, uint str, string association, string extra, StringBuilder result, ref uint size);
+        public static FolderResult Association(string scheme) {
+            uint size = 32768; StringBuilder command = new StringBuilder((int)size);
+            int result = AssocQueryStringW(0, 1, scheme, "open", command, ref size);
+            return new FolderResult { HResult = unchecked((uint)result).ToString("X8"), Path = result == 0 ? command.ToString() : "" };
+        }
         public static FolderResult Folder(string identifier, uint flags, IntPtr token) {
             Guid id = new Guid(identifier); IntPtr pointer;
             int result = SHGetKnownFolderPath(ref id, flags, token, out pointer);
