@@ -95,20 +95,7 @@ func readValue(v managedValue) (string, bool, error) {
 		return "", false, err
 	}
 	defer key.Close()
-	value, kind, err := key.GetStringValue(v.name)
-	if errors.Is(err, registry.ErrNotExist) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", true, err
-	}
-	if kind != registry.SZ {
-		return "", true, errors.New("registry entry has unexpected type")
-	}
-	if len(value) > 8192 {
-		return "", true, errors.New("registry value exceeds limit")
-	}
-	return value, true, nil
+	return winuser.ReadRegistryString(key, v.name)
 }
 func hexString(s string) string { return hex.EncodeToString([]byte(s)) }
 func ledgerMetadata(l winuser.Layout) (map[string]string, error) {

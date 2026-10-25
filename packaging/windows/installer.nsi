@@ -105,9 +105,9 @@ Function ${PREFIX}.onInit
   StrCpy $OwnerSID $5
   System::Call 'kernel32::LocalFree(p r4)'
 !ifdef QA_ROOT
-  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\SteamSageCompanion-Package-$OwnerSID-${QA_ID}") p.r0 ?e'
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Global\SteamSageCompanion-Package-$OwnerSID-${QA_ID}") p.r0 ?e'
 !else
-  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\SteamSageCompanion-Package-$OwnerSID") p.r0 ?e'
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Global\SteamSageCompanion-Package-$OwnerSID") p.r0 ?e'
 !endif
   Pop $1
   StrCpy $OperationLock $0

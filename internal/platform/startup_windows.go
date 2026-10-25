@@ -7,6 +7,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/effigy-analytics/steam-sage-companion/internal/winuser"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -35,17 +36,11 @@ type startupRegistration struct {
 }
 
 func readStartup(key registry.Key) (startupRegistration, error) {
-	value, kind, err := key.GetStringValue(startupValueName)
-	if errors.Is(err, registry.ErrNotExist) {
-		return startupRegistration{}, nil
-	}
+	value, present, err := winuser.ReadRegistryString(key, startupValueName)
 	if err != nil {
 		return startupRegistration{}, err
 	}
-	if kind != registry.SZ {
-		return startupRegistration{}, errors.New("startup entry uses another registry value type; leaving it in place")
-	}
-	return startupRegistration{present: true, command: value}, nil
+	return startupRegistration{present: present, command: value}, nil
 }
 func writeStartup(key registry.Key, value startupRegistration) error {
 	if value.present {
