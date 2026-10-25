@@ -29,7 +29,7 @@ jobs:
       - name: Build allowlisted archives
         env:
           COMPANION_VERSION: ${{ inputs.version }}
-        run: python3 scripts/build_release.py --version "$COMPANION_VERSION"
+        run: python3 scripts/build_release.py --platform linux --version "$COMPANION_VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: companion-release-candidate
