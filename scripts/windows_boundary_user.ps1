@@ -18,6 +18,16 @@ function Wait-Ready {
     }
     throw 'Installed helper did not become ready'
 }
+function Wait-URL([string]$Prefix) {
+    for ($i=0; $i -lt 200; $i++) {
+        if (Test-Path $opened) {
+            $latest = [string](Get-Content $opened | Select-Object -Last 1)
+            if ($latest.StartsWith($Prefix)) { return $latest }
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    throw 'Native URL handler did not receive the expected destination (private URL omitted)'
+}
 function OwnedPID {
     $connection = @(Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)
     Assert ($connection.Count -eq 1) 'Expected exactly one loopback listener'
@@ -59,6 +69,7 @@ try {
         }
     }
     $observations | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $evidence 'profile-diagnostics.json') -Encoding utf8
+    Assert ($observations.token_profile.Error -eq 0 -and $env:USERPROFILE -eq $observations.token_profile.Path) 'Logon environment does not match the native token profile'
     # A newly loaded headless profile has not had Explorer initialize Programs.
     # Create real current-user known folders through the native folder API; do not
     # fabricate paths or substitute APPDATA/HOME for an actual logon boundary.
@@ -66,6 +77,7 @@ try {
     $roaming = [Environment]::GetFolderPath('ApplicationData', 'Create')
     $programs = [Environment]::GetFolderPath('Programs', 'Create')
     Assert ($local -and $roaming -and $programs) 'Native profile folder initialization failed'
+    Assert ($env:APPDATA -eq $roaming -and $env:LOCALAPPDATA -eq $local) 'Logon AppData environment does not match native known folders'
     $menu = Join-Path $programs 'Steam Sage Companion'
     Assert ($local -and $roaming -and $menu) 'Missing real profile known folders'
     $install = Join-Path $local 'Programs/Steam Sage Companion'
@@ -86,6 +98,7 @@ try {
     '[ ["user-collections.done", {"value":"{\"id\":\"done\",\"name\":\"Completed\",\"added\":[1001],\"removed\":[]}"}], ["user-collections.next", {"value":"{\"id\":\"next\",\"name\":\"Play These First\",\"added\":[1002],\"removed\":[]}"}] ]' | Set-Content $source -Encoding utf8NoBOM
     New-Item 'HKCU:\Software\Valve\Steam' -Force | Out-Null
     Set-ItemProperty 'HKCU:\Software\Valve\Steam' -Name SteamPath -Value $steam
+    $steamSourceHash = (Get-FileHash $source).Hash
     Assert ((Run $parameters.setup '/S') -eq 0) 'Production Setup failed under standard token'
     $status = Wait-Ready
     Assert (Test-Path (Join-Path $install 'package.ini')) 'Missing production ledger'
@@ -95,7 +108,9 @@ try {
     Assert (Test-Path (Join-Path $menu 'Companion Settings.lnk')) 'Missing native Settings shortcut'
     Assert (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion') 'Missing current-user Apps registration'
     $firstPID = OwnedPID
-    Assert ((Run $bin 'launch --background') -eq 0) 'Warm launch failed'
+    Assert ((Run $bin 'launch') -eq 0) 'Warm launch failed'
+    $sageURL = Wait-URL 'https://steam-sage.effigy-analytics.com/'
+    Assert ($sageURL -eq 'https://steam-sage.effigy-analytics.com/companion?installed=1') 'Warm launch dispatched the wrong public Sage URL'
     Assert ((OwnedPID) -eq $firstPID) 'Warm launch replaced singleton'
     Assert (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SteamSageCompanion -ErrorAction SilentlyContinue)) 'Startup enabled by default'
     Passed 'production Setup, standard token, real known folders/HKCU, background survival, singleton and startup off'
@@ -103,8 +118,7 @@ try {
     Assert ((Run $bin 'settings') -eq 0) 'Cold Settings failed'
     $null = Wait-Ready
     $null = OwnedPID
-    for ($i=0; $i -lt 200 -and -not (Test-Path $opened); $i++) { Start-Sleep -Milliseconds 50 }
-    Assert ((Test-Path $opened) -and (Get-Content $opened | Select-Object -Last 1).StartsWith('http://127.0.0.1:43871/')) 'Cold Settings did not dispatch local controls through native URL handler'
+    $null = Wait-URL 'http://127.0.0.1:43871/'
     Passed 'cold Settings returns with owned background process and native ShellExecute dispatch'
     $manifest = @{ root=$Root; setup=$parameters.setup; bin=$bin; config=$config; source=$source; opened=$opened; evidence=$evidence; sid=$identity.User.Value; install=$install }
     $manifest | ConvertTo-Json | Set-Content (Join-Path $Root 'fixture.json') -Encoding utf8
@@ -122,6 +136,9 @@ try {
     Assert ((Run $uninstaller ('/S _?=' + $install)) -eq 0) 'Production uninstall failed'
     Assert (-not (Test-Path $bin)) 'Uninstall kept owned executable'
     Assert (-not (Test-Path $menu)) 'Uninstall kept owned shortcuts'
+    Assert (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion')) 'Uninstall kept owned Apps registration'
+    Assert (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SteamSageCompanion -ErrorAction SilentlyContinue)) 'Uninstall kept owned startup registration'
+    Assert ((Get-FileHash $source).Hash -eq $steamSourceHash) 'Installed flow changed synthetic Steam contents'
     Assert (-not (Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)) 'Uninstall left listener'
     Assert ((Get-FileHash (Join-Path $config 'settings.json')).Hash -eq $before) 'Uninstall changed settings'
     Passed 'actual production uninstaller stops owned process, removes package and preserves settings'

@@ -91,4 +91,5 @@ jobs:
           name: windows-public-candidate
           path: |
             ${{ runner.temp }}/public-candidate-one
+            ${{ runner.temp }}/public-candidate-two
             ${{ runner.temp }}/repeatability.json

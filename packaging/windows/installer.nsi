@@ -2,6 +2,8 @@
 Unicode true
 RequestExecutionLevel user
 SetCompressor zlib
+; Ownership uses content hashes. Build scratch mtimes are not package identity.
+SetDateSave off
 SetOverwrite off
 !include "LogicLib.nsh"
 !include "x64.nsh"

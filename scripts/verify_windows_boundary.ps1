@@ -14,7 +14,10 @@ $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
 try {
     Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
     if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object SID -eq $user.SID) { throw 'Fixture account is an administrator' }
-    & icacls.exe $root /grant ('*' + $user.SID.Value + ':(OI)(CI)M') | Out-Null
+    # Fixture capture contains one-use private URLs; only the test identity,
+    # controller identity and SYSTEM may access this private scratch root.
+    $controllerSID = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $root /inheritance:r /grant ('*' + $controllerSID + ':(OI)(CI)F') '*S-1-5-18:(OI)(CI)F' ('*' + $user.SID.Value + ':(OI)(CI)M') | Out-Null
     if ($LASTEXITCODE) { throw 'Fixture ACL grant failed' }
     $build = Join-Path $root 'production'
     & (Join-Path $PSScriptRoot 'build_windows_installer.ps1') -Version '0.1.0-alpha.3' -Output $build | Out-Host
@@ -39,7 +42,7 @@ try {
     $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $password)
     $shell = (Get-Command pwsh).Source
     $arguments = '-NoProfile -NonInteractive -File "' + (Join-Path $root 'windows_boundary_user.ps1') + '" -Root "' + $root + '"'
-    $child = Start-Process $shell -Credential $credential -LoadUserProfile -WorkingDirectory $root -ArgumentList $arguments -PassThru
+    $child = Start-Process $shell -Credential $credential -LoadUserProfile -UseNewEnvironment -WorkingDirectory $root -ArgumentList $arguments -PassThru
     if (-not $child.WaitForExit(600000)) { $child.Kill(); throw 'Standard-user acceptance timed out' }
     if ($child.ExitCode -ne 0) { throw "Standard-user acceptance failed: $($child.ExitCode)" }
     if (-not (Test-Path (Join-Path $root 'evidence/result.json'))) { throw 'Missing standard-user evidence' }
