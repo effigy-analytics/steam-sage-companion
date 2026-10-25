@@ -186,7 +186,11 @@ func stagePaths(stage, report string, l winuser.Layout) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !strings.EqualFold(filepath.Clean(report), filepath.Join(canonical, "report.ini")) {
+	reportParent, err := winuser.CanonicalDir(filepath.Dir(report))
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(reportParent, canonical) || !strings.EqualFold(filepath.Base(report), "report.ini") {
 		return "", errors.New("report must be report.ini inside the private stage")
 	}
 	for _, root := range []string{l.InstallDir, l.StartMenuDir, l.ConfigDir} {

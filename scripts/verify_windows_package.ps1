@@ -4,7 +4,8 @@
 param([Parameter(Mandatory)][string]$Output)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$root = Join-Path ([IO.Path]::GetTempPath()) ('Sage QA 雪 café ' + [guid]::NewGuid().ToString('N'))
+$fixtureBase = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Temp'
+$root = Join-Path $fixtureBase ('Sage QA 雪 café ' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $root | Out-Null
 $setup = & "$PSScriptRoot/build_windows_installer.ps1" -Version '0.1.0-alpha.3' -Output $Output -TestRoot $root
 $setup = @($setup)[-1]
@@ -43,7 +44,7 @@ Check 'real Setup installs fixed files and Unicode shortcuts' {
 # Each scenario starts from files created by this QA Setup, never owner destinations.
 $registry = 'HKCU:\Software\SteamSageCompanionQA\' + (Split-Path $root -Leaf)
 function Reset-Fixture {
-    Assert ($root.StartsWith([IO.Path]::GetTempPath()) -and $root -match '[a-f0-9]{32}$') 'Refusing nonfixture cleanup'
+    Assert ($root.StartsWith($fixtureBase) -and $root -match '[a-f0-9]{32}$') 'Refusing nonfixture cleanup'
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }
     if (Test-Path $registry) { Remove-Item $registry -Recurse -Force }
     New-Item -ItemType Directory $root | Out-Null
@@ -213,7 +214,7 @@ Check 'redirected Start Menu on another volume supports upgrade and rollback' {
     $rootDrive = [IO.Path]::GetPathRoot($root)
     $otherDrive = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -eq 'Fixed' -and $_.Name -ne $rootDrive })
     Assert ($otherDrive.Count -gt 0) 'This native fixture requires a second real fixed volume'
-    $crossRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sage Cross Volume ' + [guid]::NewGuid().ToString('N'))
+    $crossRoot = Join-Path $fixtureBase ('Sage Cross Volume ' + [guid]::NewGuid().ToString('N'))
     $crossMenu = Join-Path $otherDrive[0].Name ('Sage QA Menu 雪 ' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory $crossRoot | Out-Null
     New-Item -ItemType Directory $crossMenu | Out-Null

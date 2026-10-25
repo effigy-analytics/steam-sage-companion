@@ -12,7 +12,8 @@ OutFile "${OUTPUT}"
 BrandingText "Steam Sage Companion preview"
 ShowInstDetails show
 ShowUninstDetails show
-Page license "${REPO}\LICENSE"
+LicenseData "${REPO}\LICENSE"
+Page license
 Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
@@ -54,19 +55,34 @@ Function ${PREFIX}.onInit
   SetShellVarContext current
   SetRegView 64
 !ifdef QA_ROOT
-  StrCpy $LocalBase "${QA_ROOT}"
-  StrCpy $InstallDir "${QA_ROOT}\Programs\Steam Sage Companion"
+  StrCpy $0 "${QA_ROOT}"
+  System::Call 'kernel32::GetLongPathNameW(w r0, w .r1, i ${NSIS_MAX_STRLEN}) i.r2'
+  StrCmp $2 0 initialization_failed
+  StrCpy $LocalBase $1
+  StrCpy $InstallDir "$LocalBase\Programs\Steam Sage Companion"
 !ifdef QA_MENU_ROOT
-  StrCpy $MenuDir "${QA_MENU_ROOT}\Steam Sage Companion"
+  StrCpy $0 "${QA_MENU_ROOT}"
+  System::Call 'kernel32::GetLongPathNameW(w r0, w .r1, i ${NSIS_MAX_STRLEN}) i.r2'
+  StrCmp $2 0 initialization_failed
+  StrCpy $MenuDir "$1\Steam Sage Companion"
 !else
-  StrCpy $MenuDir "${QA_ROOT}\Start Menu\Steam Sage Companion"
+  StrCpy $MenuDir "$LocalBase\Start Menu\Steam Sage Companion"
 !endif
-  StrCpy $ConfigDir "${QA_ROOT}\Config"
+  StrCpy $ConfigDir "$LocalBase\Config"
 !else
-  StrCpy $LocalBase "$LOCALAPPDATA"
-  StrCpy $InstallDir "$LOCALAPPDATA\Programs\Steam Sage Companion"
-  StrCpy $MenuDir "$SMPROGRAMS\Steam Sage Companion"
-  StrCpy $ConfigDir "$APPDATA\steam-sage-companion"
+  StrCpy $0 "$LOCALAPPDATA"
+  System::Call 'kernel32::GetLongPathNameW(w r0, w .r1, i ${NSIS_MAX_STRLEN}) i.r2'
+  StrCmp $2 0 initialization_failed
+  StrCpy $LocalBase $1
+  StrCpy $InstallDir "$LocalBase\Programs\Steam Sage Companion"
+  StrCpy $0 "$SMPROGRAMS"
+  System::Call 'kernel32::GetLongPathNameW(w r0, w .r1, i ${NSIS_MAX_STRLEN}) i.r2'
+  StrCmp $2 0 initialization_failed
+  StrCpy $MenuDir "$1\Steam Sage Companion"
+  StrCpy $0 "$APPDATA"
+  System::Call 'kernel32::GetLongPathNameW(w r0, w .r1, i ${NSIS_MAX_STRLEN}) i.r2'
+  StrCmp $2 0 initialization_failed
+  StrCpy $ConfigDir "$1\steam-sage-companion"
 !endif
   StrCpy $INSTDIR $InstallDir
   ; Obtain the current token SID without usernames, environment substitutions,
