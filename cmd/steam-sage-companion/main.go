@@ -24,7 +24,7 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/steam"
 )
 
-var version = "0.1.0-alpha.2"
+var version = "0.1.0-alpha.3"
 
 func commandArgs(args []string) (string, []string) {
 	if len(args) == 0 {
@@ -35,8 +35,8 @@ func commandArgs(args []string) (string, []string) {
 
 func main() {
 	command, rest := commandArgs(os.Args[1:])
-	if command == "settings" {
-		command = "open"
+	if packageCommand(command, rest) {
+		return
 	}
 	if command == "install" || command == "uninstall" {
 		flags := flag.NewFlagSet(command, flag.ExitOnError)
@@ -77,27 +77,29 @@ func main() {
 		}
 		return
 	}
-	if command == "serve" || command == "open" || command == "launch" {
+	if command == "serve" || command == "open" || command == "launch" || command == "settings" || command == "stop" {
 		flags := flag.NewFlagSet("serve", flag.ExitOnError)
-		base, err := os.UserConfigDir()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Cannot locate per-user settings")
-			os.Exit(1)
-		}
-		dir := flags.String("config-dir", filepath.Join(base, "steam-sage-companion"), "per-user settings directory")
-		flags.Bool("background", false, "run without opening controls")
+		dir := flags.String("config-dir", "", "per-user settings directory")
+		background := flags.Bool("background", false, "run without opening controls")
 		allowOrigin := flags.String("allow-origin", "", "explicit additional Sage origin (requires separate pairing)")
 		flags.Parse(rest)
+		resolvedDir, err := commandConfigDir(*dir, os.UserConfigDir)
+		if err != nil {
+			reportCommandError(command, *background, errors.New("Cannot locate per-user settings"))
+			os.Exit(1)
+		}
+		*dir = resolvedDir
+
 		var origins []string
 		if *allowOrigin != "" {
 			u, e := url.Parse(*allowOrigin)
 			if e != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost"))) {
-				fmt.Fprintln(os.Stderr, "Provide an exact HTTPS origin or explicit localhost development origin")
+				reportCommandError(command, *background, errors.New("Provide an exact HTTPS origin or explicit localhost development origin"))
 				os.Exit(2)
 			}
 			origins = []string{*allowOrigin}
 		}
-		if command == "launch" {
+		if destination, detached := launchDestination(command); detached || command == "stop" {
 			executable, err := os.Executable()
 			if err == nil {
 				if paths, e := install.UserPaths(*dir); e == nil {
@@ -105,10 +107,20 @@ func main() {
 				}
 			}
 			if err == nil {
-				err = launch.Run(launch.Options{Executable: executable, ConfigDir: *dir, ExtraOrigin: *allowOrigin})
+				if command == "stop" {
+					err = stopCompanion(*dir, executable)
+				} else {
+					if *background {
+						destination = launch.None
+					}
+					err = launch.Run(launch.Options{Executable: executable, ConfigDir: *dir, ExtraOrigin: *allowOrigin, Destination: destination})
+				}
 			}
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				reportCommandError(command, *background, err)
+				if command == "stop" {
+					os.Exit(stopExitCode(err))
+				}
 				os.Exit(1)
 			}
 			return
@@ -119,7 +131,7 @@ func main() {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		if err := serveWithOpen(ctx, *dir, origins, command == "open"); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			reportCommandError(command, *background, err)
 			os.Exit(1)
 		}
 		return
@@ -129,7 +141,7 @@ func main() {
 		return
 	}
 	if len(os.Args) != 2 || os.Args[1] != "inspect" {
-		fmt.Fprintln(os.Stderr, "Usage: steam-sage-companion launch | settings | open | serve | inspect | install | uninstall [--purge] | version")
+		fmt.Fprintln(os.Stderr, "Usage: steam-sage-companion launch | settings | open | serve | stop | inspect | install | uninstall [--purge] | version")
 		os.Exit(2)
 	}
 	accounts, err := steam.Discover(platform.SteamRoots())
@@ -194,10 +206,7 @@ func serveWithOpen(parent context.Context, dir string, extraOrigins []string, op
 		executable = install.StartupExecutable(executable, paths)
 	}
 	bridgeServer := bridge.New(bridge.Config{OpenBrowser: platform.OpenBrowserObserved, Store: store, Version: version, ExtraOrigins: extraOrigins, Accounts: application.Accounts, OnSelect: application.SelectAccount, OnSetRoot: application.AddRoot, OnStop: cancel, OnStartup: func(enabled bool) error {
-		if err := platform.SetStartup(enabled, executable, dir); err != nil {
-			return err
-		}
-		return store.Update(func(c *config.Config) error { c.Startup = enabled; return nil })
+		return setStartupPreference(enabled, executable, dir, store)
 	}, OnChooseRoot: func() error {
 		go func() {
 			pickerCtx, stop := context.WithTimeout(ctx, 2*time.Minute)

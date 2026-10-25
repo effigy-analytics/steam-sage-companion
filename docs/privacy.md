@@ -19,7 +19,8 @@ API's access to private owned-library data or friends' private collections.
 Local settings contain the selected account/root, source IDs, derived HMAC pairing credentials and the optional startup setting. They are stored in the per-user config
 directory, not in the release archive. Revocation removes a site's derived credentials.
 Uninstall stops the helper and removes its own launcher/startup files. Settings
-remain unless `uninstall --purge` is used. Browser data is managed independently
+remain unless Linux `uninstall --purge` is used. Windows Apps uninstall preserves
+settings; revoke sites in Companion before uninstalling to remove their grants. Browser data is managed independently
 by Sage or the browser's site-data controls. No cross-device sync is enabled.
 
 Logs and the `inspect` command use counts/read states rather than account IDs,
@@ -36,3 +37,9 @@ are distinct. Cancel/decline receipts hold only verifier and issued-grant hashes
 in memory for at most 120 seconds (64 records); they are not persisted. Closing
 approval alone grants nothing and does not stop Companion. Optional startup stays
 a local choice and upgrades preserve existing consent and settings.
+
+Windows installation is per-user. Settings use a protected owner-only DACL in
+roaming AppData. Windows discovery checks known Steam registry locations and
+standard folders; it reads collection namespace files only. Installer metadata
+contains public source/version identifiers and managed-file hashes, not pairing
+credentials. CI fixtures use synthetic Steam data in disposable Windows accounts.

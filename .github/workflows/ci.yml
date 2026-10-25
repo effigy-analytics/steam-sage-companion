@@ -9,6 +9,7 @@ jobs:
   go:
     name: Go (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -22,6 +23,8 @@ jobs:
       - name: Format
         shell: bash
         run: test -z "$(gofmt -l cmd internal)"
+      - name: Release builder regressions
+        run: python -m unittest discover -s scripts -p test_build_release.py
       - run: go mod verify
       - run: go vet ./...
       - name: Allow test user namespaces on the ephemeral Ubuntu runner
@@ -37,8 +40,56 @@ jobs:
         run: scripts/with-isolated-network.sh go test -count=1 -v ./...
       - name: Windows unit tests
         if: runner.os == 'Windows'
-        run: go test ./...
+        # Synthetic process fixtures share the fixed product port only on this
+        # disposable runner. Serial packages cannot race each other for it.
+        run: go test -p 1 -count=1 -v ./...
       - name: Race tests
         if: runner.os == 'Linux'
         run: scripts/with-isolated-network.sh go test -race -count=1 -v ./...
       - run: go build ./cmd/steam-sage-companion
+      - name: Native Windows package fixtures (separate QA adapter)
+        id: windows-package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/verify_windows_package.ps1 -Output "$env:RUNNER_TEMP/package-evidence"
+      - name: Retain Windows packaging evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-package-evidence
+          path: ${{ runner.temp }}/package-evidence
+      - name: Production Windows standard-user boundary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/verify_windows_boundary.ps1 -Output "$env:RUNNER_TEMP/boundary-evidence"
+      - name: Retain sanitized standard-user boundary evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-boundary-evidence
+          path: ${{ runner.temp }}/boundary-evidence
+      - name: Build clean production candidates twice and inspect contents
+        # Compile-only release diagnostics can proceed after a boundary fixture failure;
+        # all runtime prerequisites must pass and the overall CI remains failed.
+        if: always() && runner.os == 'Windows' && steps.windows-package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $one = Join-Path $env:RUNNER_TEMP 'public-candidate-one'
+          $two = Join-Path $env:RUNNER_TEMP 'public-candidate-two'
+          python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $one
+          if ($LASTEXITCODE) { throw 'First public candidate failed' }
+          # Cross a filesystem timestamp tick so equal hashes prove more than an immediate rebuild.
+          Start-Sleep -Seconds 3
+          python scripts/build_release.py --version 0.1.0-alpha.3 --platform windows --output $two
+          if ($LASTEXITCODE) { throw 'Second public candidate failed' }
+          python scripts/verify_release.py $one $two --version 0.1.0-alpha.3 --source-ref (git rev-parse HEAD) --report "$env:RUNNER_TEMP/repeatability.json"
+          if ($LASTEXITCODE) { throw 'Candidate contents or repeatability failed' }
+      - name: Retain clean public candidates and repeatability evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-public-candidate
+          path: |
+            ${{ runner.temp }}/public-candidate-one
+            ${{ runner.temp }}/public-candidate-two
+            ${{ runner.temp }}/repeatability.json

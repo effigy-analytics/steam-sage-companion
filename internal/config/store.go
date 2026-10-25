@@ -27,7 +27,11 @@ type Config struct {
 }
 
 func Load(dir string) (Config, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	path := filepath.Join(dir, "settings.json")
+	if err := validatePrivateLoad(dir, path); err != nil {
+		return Config{}, err
+	}
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		c := Config{Kind: "steam-sage-companion", InstanceID: rand.Text(), Sources: map[string]string{}, Pairings: []Pairing{}}
 		return c, Save(dir, c)
@@ -46,11 +50,11 @@ func Load(dir string) (Config, error) {
 }
 func Save(dir string, c Config) error {
 	c.Kind = "steam-sage-companion"
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := ensurePrivateDir(dir); err != nil {
 		return errors.New("cannot create settings directory")
 	}
-	if err := os.Chmod(dir, 0700); err != nil {
-		return errors.New("cannot protect settings directory")
+	if err := validatePrivateLoad(dir, filepath.Join(dir, "settings.json")); err != nil {
+		return err
 	}
 	data, err := json.Marshal(c)
 	if err != nil {
@@ -62,7 +66,7 @@ func Save(dir string, c Config) error {
 	}
 	tmp := f.Name()
 	defer os.Remove(tmp)
-	if err = f.Chmod(0600); err == nil {
+	if err = protectPrivateFile(f); err == nil {
 		_, err = f.Write(data)
 	}
 	if err == nil {
@@ -75,7 +79,7 @@ func Save(dir string, c Config) error {
 	if err != nil {
 		return errors.New("cannot save companion settings")
 	}
-	if err = os.Rename(tmp, filepath.Join(dir, "settings.json")); err != nil {
+	if err = replacePrivateFile(tmp, filepath.Join(dir, "settings.json")); err != nil {
 		return errors.New("cannot replace companion settings")
 	}
 	return nil

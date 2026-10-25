@@ -58,3 +58,24 @@ by the existing mutual HMAC proof. Its successful and throttled responses sign
 status and exact bytes. No private URL, capability, or control token reaches the
 website. Native opening rates are bounded across pairing and settings; terminal
 and settings records expire after 120 seconds and each has a 64-record cap.
+
+## Windows preview boundary
+
+Windows activation uses exclusive local named pipes keyed by the user's SID and
+canonical config identity. Both peers verify the other process token SID; remote
+clients are rejected. Stop/upgrade/uninstall also verify the installed process
+image before waiting for exit. Unknown loopback listeners are never stopped.
+Settings enforce protected owner-only ACLs before reads/writes. Windows known
+folders and HKCU follow the actual logon identity; environment overrides alone
+are not installation isolation.
+
+NSIS is the sole packaging mutator. Its embedded trusted inspector reads bounded
+fixed destinations and hashes, never deletion paths from a ledger. Private staging
+is reserved exclusively. Ordinary-error rollback uses operation-local fixed-file
+state; a journal is evidence, not deletion or rollback authority. Changed/unowned
+files and registry entries are kept. No power-loss atomicity is claimed.
+
+Production Setup tests run under a disposable standard-user token. Separate QA
+adapter packages test failures under explicit fixture paths and must never be
+distributed. Windows Server CI does not prove Windows 10/11 desktop behavior,
+SmartScreen reputation or signing. The preview is unsigned.

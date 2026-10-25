@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func (fakeProvider) Snapshot(id string) protocol.SnapshotResponse {
 }
 func newTest(t *testing.T) (*Server, *config.Store) {
 	t.Helper()
-	store, err := config.Open(t.TempDir())
+	store, err := config.Open(filepath.Join(t.TempDir(), "settings"))
 	if err != nil {
 		t.Fatal(err)
 	}

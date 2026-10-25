@@ -1,15 +1,17 @@
 """Build deterministic, allowlisted companion archives without publishing them."""
 
 import argparse
+from contextlib import contextmanager
 import gzip
 import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tarfile
+import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +25,8 @@ def archive(files: dict[str, bytes], windows: bool) -> bytes:
             for name, data in sorted(files.items()):
                 info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = 0o644 << 16
+                info.create_system = 3
+                info.external_attr = (0o755 if name.endswith(".sh") else 0o644) << 16
                 z.writestr(info, data)
     else:
         with gzip.GzipFile(fileobj=out, mode="wb", filename="", mtime=0) as gz:
@@ -37,40 +40,132 @@ def archive(files: dict[str, bytes], windows: bool) -> bytes:
     return out.getvalue()
 
 
+def go_build_args(version: str, source_ref: str, target: str, binary: Path) -> list[str]:
+    """Compile a provenance-stamped public payload; Windows has no console."""
+    flags = f"-s -w -X main.version={version}"
+    if target == "windows":
+        flags += (f" -H=windowsgui -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageVersion={version}"
+                  f" -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageSource={source_ref}")
+    return ["go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", flags,
+            "-o", str(binary), "./cmd/steam-sage-companion"]
+
+
+def source_files(files: dict[str, bytes]) -> dict[str, bytes]:
+    """Only public build, test, documentation and protocol sources enter source ZIP."""
+    roots = {"cmd", "internal", "scripts", "packaging", "protocol", "docs", ".github"}
+    top = {"go.mod", "go.sum", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt", ".gitignore", ".gitattributes"}
+    suffixes = {".go", ".py", ".ps1", ".cs", ".sh", ".cjs", ".mjs", ".json", ".md", ".txt", ".yml", ".yaml", ".nsi", ".nsh", ".html", ".js", ".css"}
+    result = {}
+    for name, data in files.items():
+        path = PurePosixPath(name)
+        if path.is_absolute() or ".." in path.parts or "\\" in name or ":" in name:
+            continue
+        if path.name in {"settings.json", "install.json", "package.ini"}:
+            continue
+        if name in top or (path.parts[0] in roots and path.suffix in suffixes):
+            if re.search(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:ghp_|github_pat_)[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16}", data):
+                raise ValueError(f"Credential-like content in source: {name}")
+            result[name] = data
+    return result
+
+
+def prepare_output(output: Path) -> None:
+    """Do not mix candidates with earlier build or private work files."""
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("Release output must be an empty directory")
+    output.mkdir(parents=True, exist_ok=True)
+
+
+def validate_output(files: dict[str, bytes], version: str, targets: list[str]) -> None:
+    """The publishable directory contains only named release deliverables."""
+    prefix = f"steam-sage-companion-{version}"
+    expected = {f"{prefix}-source.zip"}
+    if "linux" in targets:
+        expected.add(f"{prefix}-linux-amd64.tar.gz")
+    if "windows" in targets:
+        expected.update({f"{prefix}-windows-amd64.zip", f"{prefix}-windows-amd64-setup.exe"})
+    if set(files) != expected:
+        raise ValueError("Unexpected or missing release deliverables: " + str(set(files) ^ expected))
+
+
+@contextmanager
+def tracked_checkout(source_ref: str):
+    """Compile exact tracked Git bytes; ignored embeds never enter this checkout."""
+    with tempfile.TemporaryDirectory(prefix="sage-tracked-source-") as scratch:
+        checkout = Path(scratch) / "source"
+        subprocess.run(["git", "worktree", "add", "--quiet", "--detach", str(checkout), source_ref],
+                       cwd=ROOT, check=True)
+        try:
+            actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            if actual != source_ref:
+                raise ValueError("Temporary source checkout does not match the explicit source ref")
+            yield checkout
+        finally:
+            # Remove only the uniquely created checkout; never prune other worktrees.
+            subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], cwd=ROOT, check=True)
+
+
 def main() -> None:
-    """Build binaries and archives from a clean commit and print checksums."""
+    """Build production artifacts in private scratch space, then export allowlist."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--platform", choices=["all", "linux", "windows"], default="all")
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-alpha\.[0-9]+)?", args.version):
         raise SystemExit("Invalid version")
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT).strip():
         raise SystemExit("Commit source changes before building release artifacts")
+    targets = ["linux", "windows"] if args.platform == "all" else [args.platform]
+    if "windows" in targets and os.name != "nt":
+        raise SystemExit("Build Windows Setup on native Windows with the pinned NSIS toolchain")
     source_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    source_tree = subprocess.check_output(["git", "rev-parse", f"{source_ref}^{{tree}}"], cwd=ROOT, text=True).strip()
     go_version = subprocess.check_output(["go", "version"], cwd=ROOT, text=True).strip()
-    args.output.mkdir(parents=True, exist_ok=True)
-    checksums = []
-    docs = {"LICENSE": ROOT / "LICENSE", "README.md": ROOT / "README.md", "THIRD_PARTY_NOTICES.txt": ROOT / "THIRD_PARTY_NOTICES.txt"}
-    docs.update({f"docs/{name}.md": ROOT / "docs" / f"{name}.md" for name in ["installation", "privacy", "protocol", "security"]})
-    for target in ["linux", "windows"]:
-        windows = target == "windows"
-        binary_name = "steam-sage-companion.exe" if windows else "steam-sage-companion"
-        binary = args.output / binary_name
-        env = {**os.environ, "GOOS": target, "GOARCH": "amd64", "CGO_ENABLED": "0"}
-        subprocess.run(["go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", f"-s -w -X main.version={args.version}", "-o", str(binary), "./cmd/steam-sage-companion"], cwd=ROOT, env=env, check=True)
-        files = {name: path.read_bytes() for name, path in docs.items()}
-        files[binary_name] = binary.read_bytes()
-        if not windows:
-            files["install.sh"] = (ROOT / "packaging/linux/install.sh").read_bytes()
-        files["release.json"] = (json.dumps({"version": args.version, "protocol": 1, "source_ref": source_ref, "go_version": go_version, "platform": f"{target}-amd64", "status": "experimental-unverified" if windows else "alpha"}, indent=2) + "\n").encode()
-        name = f"steam-sage-companion-{args.version}-{target}-amd64.{ 'zip' if windows else 'tar.gz'}"
-        data = archive(files, windows)
+    tracked = subprocess.check_output(["git", "archive", "--format=tar", source_ref], cwd=ROOT)
+    with tarfile.open(fileobj=io.BytesIO(tracked)) as source:
+        inputs = {m.name: source.extractfile(m).read() for m in source.getmembers() if m.isfile()}
+    sources = source_files(inputs)
+    files = {f"steam-sage-companion-{args.version}-source.zip": archive(sources, True)}
+    docs = {name: inputs[name] for name in ["LICENSE", "README.md", "THIRD_PARTY_NOTICES.txt"]}
+    docs.update({f"docs/{name}.md": inputs[f"docs/{name}.md"] for name in ["installation", "privacy", "protocol", "security", "windows-preview"]})
+    prepare_output(args.output)
+    with tracked_checkout(source_ref) as source_root, tempfile.TemporaryDirectory(prefix="sage-public-build-") as scratch:
+        staged_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=source_root, text=True).strip()
+        if staged_tree != source_tree:
+            raise ValueError("Temporary source tree does not match the recorded source tree")
+        for target in targets:
+            windows = target == "windows"
+            binary_name = "steam-sage-companion.exe" if windows else "steam-sage-companion"
+            work = Path(scratch) / target
+            work.mkdir()
+            metadata = {"version": args.version, "protocol": 1, "source_ref": source_ref, "source_tree": source_tree,
+                        "go_version": go_version, "platform": f"{target}-amd64", "status": "preview" if windows else "alpha", "qa_adapter": False}
+            if windows:
+                subprocess.run(["pwsh", "-NoProfile", "-File", str(source_root / "scripts/build_windows_installer.ps1"),
+                                "-Version", args.version, "-Output", str(work)], cwd=source_root,
+                               env={**os.environ, "GOWORK": "off"}, check=True)
+                build = json.loads((work / "windows-build.json").read_text(encoding="utf-8-sig"))
+                if build["qa_adapter"] or build["source_ref"] != source_ref:
+                    raise ValueError("Installer provenance mismatch or QA adapter")
+                metadata.update({"nsis": build["nsis"], "nsis_sha256": build["nsis_sha256"]})
+                setup = f"steam-sage-companion-{args.version}-windows-amd64-setup.exe"
+                files[setup] = (work / setup).read_bytes()
+            else:
+                env = {**os.environ, "GOOS": target, "GOARCH": "amd64", "CGO_ENABLED": "0", "GOWORK": "off"}
+                subprocess.run(go_build_args(args.version, source_ref, target, work / binary_name), cwd=source_root, env=env, check=True)
+            payload = {**docs, binary_name: (work / binary_name).read_bytes()}
+            if not windows:
+                payload["install.sh"] = inputs["packaging/linux/install.sh"]
+            payload["release.json"] = (json.dumps(metadata, indent=2) + "\n").encode()
+            extension = "zip" if windows else "tar.gz"
+            files[f"steam-sage-companion-{args.version}-{target}-amd64.{extension}"] = archive(payload, windows)
+    validate_output(files, args.version, targets)
+    checksums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in sorted(files.items()))
+    for name, data in files.items():
         (args.output / name).write_bytes(data)
-        checksums.append(f"{hashlib.sha256(data).hexdigest()}  {name}")
-    text = "\n".join(checksums) + "\n"
-    (args.output / "SHA256SUMS").write_text(text)
-    print(text, end="")
+    (args.output / "SHA256SUMS").write_text(checksums, encoding="utf-8", newline="\n")
+    print(checksums, end="")
 
 
 if __name__ == "__main__":
