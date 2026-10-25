@@ -3,13 +3,15 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$')][string]$Version,
     [Parameter(Mandatory)][string]$Output,
     # Explicit QA compiler adapter. Artifacts are labeled QA and must never be distributed.
-    [string]$TestRoot = ''
+    [string]$TestRoot = '',
+    [string]$TestMenuRoot = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = Split-Path $PSScriptRoot -Parent
 if (-not [IO.Path]::IsPathFullyQualified($Output)) { throw 'Output must be absolute' }
 if ($TestRoot -and -not [IO.Path]::IsPathFullyQualified($TestRoot)) { throw 'TestRoot must be absolute' }
+if ($TestMenuRoot -and (-not $TestRoot -or -not [IO.Path]::IsPathFullyQualified($TestMenuRoot))) { throw 'TestMenuRoot requires explicit QA TestRoot and an absolute fixture directory' }
 Push-Location $repo
 try {
     if (git status --porcelain) { throw 'Commit source changes before building installer artifacts' }
@@ -58,6 +60,7 @@ try {
     $tags = @()
     $ld = "-s -w -H=windowsgui -X main.version=$Version -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageVersion=$Version -X github.com/effigy-analytics/steam-sage-companion/internal/install.PackageSource=$source"
     if ($TestRoot) { $tags = @('-tags', 'packageqa'); $ld += " -X 'github.com/effigy-analytics/steam-sage-companion/internal/install.qaRoot=$TestRoot'" }
+    if ($TestMenuRoot) { $ld += " -X 'github.com/effigy-analytics/steam-sage-companion/internal/install.qaMenuRoot=$TestMenuRoot'" }
     & go build -mod=readonly -trimpath -buildvcs=false @tags -ldflags $ld -o $payload ./cmd/steam-sage-companion
     if ($LASTEXITCODE) { throw 'Windows helper build failed' }
     [ordered]@{ version=$Version; source_ref=$source; platform='windows-amd64'; status='preview'; qa_adapter=[bool]$TestRoot; protocol=1 } | ConvertTo-Json | Set-Content (Join-Path $Output 'release.json') -Encoding utf8
@@ -65,6 +68,7 @@ try {
     $setup = Join-Path $Output "steam-sage-companion-$Version-windows-amd64$label-setup.exe"
     $defs = @("/DOUTPUT=$setup", "/DPAYLOAD=$payload", "/DVERSION=$Version", "/DSOURCE=$source", "/DREPO=$repo", "/DMETADATA=$(Join-Path $Output 'release.json')")
     if ($TestRoot) { $defs += "/DQA_ROOT=$TestRoot"; $defs += "/DQA_ID=$(Split-Path $TestRoot -Leaf)" }
+    if ($TestMenuRoot) { $defs += "/DQA_MENU_ROOT=$TestMenuRoot" }
     & $compiler /V3 @defs (Join-Path $repo 'packaging/windows/installer.nsi')
     if ($LASTEXITCODE) { throw 'NSIS compilation failed' }
     $metadata = [ordered]@{ version=$Version; source_ref=$source; go_version=(& go version); nsis=$manifest.version; nsis_sha256=$manifest.sha256; status='preview'; qa_adapter=[bool]$TestRoot; setup_sha256=(Get-FileHash $setup).Hash.ToLowerInvariant() }

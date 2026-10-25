@@ -209,5 +209,29 @@ Check 'concurrent Setup and Uninstall reports busy without disturbing winning tr
     $winner.Refresh(); Assert ($winner.ExitCode -eq 0) 'Winning Setup failed'
     Assert (Test-Path (Join-Path $install 'package.ini')) 'Winning ledger missing'
 }
+Check 'redirected Start Menu on another volume supports upgrade and rollback' {
+    $rootDrive = [IO.Path]::GetPathRoot($root)
+    $otherDrive = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -eq 'Fixed' -and $_.Name -ne $rootDrive })
+    Assert ($otherDrive.Count -gt 0) 'This native fixture requires a second real fixed volume'
+    $crossRoot = Join-Path ([IO.Path]::GetTempPath()) ('Sage Cross Volume ' + [guid]::NewGuid().ToString('N'))
+    $crossMenu = Join-Path $otherDrive[0].Name ('Sage QA Menu 雪 ' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory $crossRoot | Out-Null
+    New-Item -ItemType Directory $crossMenu | Out-Null
+    Assert ([IO.Path]::GetPathRoot($crossRoot) -ne [IO.Path]::GetPathRoot($crossMenu)) 'Fixture did not cross volumes'
+    $first = & "$PSScriptRoot/build_windows_installer.ps1" -Version '0.1.0-alpha.3' -Output (Join-Path $Output 'cross-first') -TestRoot $crossRoot -TestMenuRoot $crossMenu
+    $first = @($first)[-1]
+    $next = & "$PSScriptRoot/build_windows_installer.ps1" -Version '0.1.0-alpha.4' -Output (Join-Path $Output 'cross-next') -TestRoot $crossRoot -TestMenuRoot $crossMenu
+    $next = @($next)[-1]
+    Assert ((Run $first '/S') -eq 0) 'Cross-volume fresh install failed'
+    $crossInstall = Join-Path $crossRoot 'Programs/Steam Sage Companion'
+    $before = Hash (Join-Path $crossInstall 'package.ini')
+    New-Item -ItemType File (Join-Path $crossRoot 'fail-after-registration') | Out-Null
+    Assert ((Run $next '/S') -ne 0) 'Cross-volume failure injection ignored'
+    Assert ((Hash (Join-Path $crossInstall 'package.ini')) -eq $before) 'Cross-volume rollback lost prior ledger'
+    Remove-Item (Join-Path $crossRoot 'fail-after-registration')
+    Assert ((Run $next '/S') -eq 0) 'Cross-volume update failed'
+    Assert ((Hash (Join-Path $crossInstall 'package.ini')) -ne $before) 'Cross-volume update did not commit new version'
+    Assert (Test-Path (Join-Path $crossMenu 'Steam Sage Companion/Companion Settings.lnk')) 'Cross-volume shortcut lost'
+}
 [ordered]@{ fixture_root=$root; adapter=$true; platform='Windows Server CI, not Windows 10/11 desktop validation'; failures=@($failures) } | ConvertTo-Json | Set-Content (Join-Path $Output 'package-tests.json') -Encoding utf8
 if ($failures.Count) { throw ($failures -join "`n") }

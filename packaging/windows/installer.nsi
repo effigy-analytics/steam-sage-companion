@@ -56,7 +56,11 @@ Function ${PREFIX}.onInit
 !ifdef QA_ROOT
   StrCpy $LocalBase "${QA_ROOT}"
   StrCpy $InstallDir "${QA_ROOT}\Programs\Steam Sage Companion"
+!ifdef QA_MENU_ROOT
+  StrCpy $MenuDir "${QA_MENU_ROOT}\Steam Sage Companion"
+!else
   StrCpy $MenuDir "${QA_ROOT}\Start Menu\Steam Sage Companion"
+!endif
   StrCpy $ConfigDir "${QA_ROOT}\Config"
 !else
   StrCpy $LocalBase "$LOCALAPPDATA"
