@@ -326,7 +326,7 @@ func (f installedFixture) sageOnly(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if raw, err := os.ReadFile(f.opened); err == nil {
+		if raw, err := os.ReadFile(f.opened); err == nil && len(raw) != 0 {
 			if string(raw) != "https://steam-sage.effigy-analytics.com/companion?installed=1\n" {
 				t.Fatalf("normal launch opened private or unexpected URL: %s", raw)
 			}
@@ -637,4 +637,21 @@ func TestInstallerTerminalDeadlineBoundsOutputAndStopsOwnedShell(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("owned PTY shell survived cancellation")
+}
+
+// The fake browser opens its append-only record before printf writes the URL.
+// Observing that empty file is not evidence that it opened an empty URL.
+func TestInstalledFixtureWaitsForCompletedBrowserRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "browser-record")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() { <-done })
+	go func() {
+		defer close(done)
+		time.Sleep(50 * time.Millisecond)
+		os.WriteFile(path, []byte("https://steam-sage.effigy-analytics.com/companion?installed=1\n"), 0600)
+	}()
+	installedFixture{opened: path}.sageOnly(t)
 }
