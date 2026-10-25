@@ -46,6 +46,47 @@ function Dispatch-Diagnostics {
     }
     $record | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $evidence 'dispatch-diagnostics.json') -Encoding utf8
 }
+function Owned-BrowserProcesses([string]$Executable) {
+    $name = [IO.Path]::GetFileName($Executable)
+    Assert ($name -match '^[A-Za-z0-9_.-]{1,128}$') 'Unexpected native browser executable name'
+    $found = @()
+    foreach ($p in (Get-CimInstance Win32_Process -Filter ("Name='" + $name + "'"))) {
+        $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+        if ($owner -and $owner.Sid -eq $identity.User.Value -and $p.ExecutablePath -eq $Executable -and $found.Count -lt 64) {
+            $found += @{ pid=$p.ProcessId; executable=$p.ExecutablePath }
+        }
+    }
+    return $found
+}
+function Instrument-SelectedHandlers {
+    # Only this disposable account's selected ProgID command is shadowed.
+    # Its protected UserChoice and Hash are read/compared, never written.
+    $observations = @()
+    $registered = @{}
+    $captureCommand = '"' + $Root + '\capture.exe" "' + $opened + '" "%1"'
+    foreach ($scheme in @('http', 'https')) {
+        $choicePath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$scheme\UserChoice"
+        $choice = Get-Item $choicePath
+        $progID = [string]$choice.GetValue('ProgId')
+        $hash = $choice.GetValue('Hash')
+        Assert ($progID -match '^[A-Za-z0-9._-]{1,128}$') 'Unexpected selected protocol ProgID'
+        $before = [SageBoundary.ProfileProbe]::Association($scheme)
+        if (-not $registered.ContainsKey($progID)) {
+            $key = "HKCU:\Software\Classes\$progID\shell\open\command"
+            Assert (-not (Test-Path $key)) 'Selected handler already has a per-user command in this fresh fixture'
+            New-Item $key -Force | Out-Null
+            Set-Item $key -Value $captureCommand
+            $registered[$progID] = $true
+        }
+        [SageBoundary.ProfileProbe]::AssociationsChanged()
+        $after = [SageBoundary.ProfileProbe]::Association($scheme)
+        $unchanged = (Get-Item $choicePath).GetValue('ProgId') -eq $progID -and (Get-Item $choicePath).GetValue('Hash') -eq $hash
+        $observations += @{ scheme=$scheme; prog_id=$progID; before=$before; after=$after; hash_present=($null -ne $hash); user_choice_unchanged=$unchanged; fixture_instrumentation=$true }
+        $observations | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'association-instrumentation.json') -Encoding utf8
+        Assert ($after.HResult -eq '00000000' -and $after.Path -eq $captureCommand) 'Effective association did not select fixture capture command'
+        Assert $unchanged 'UserChoice or its protected Hash changed during fixture instrumentation'
+    }
+}
 function Wait-URL([string]$Prefix) {
     for ($i=0; $i -lt 200; $i++) {
         if (Test-Path $opened) {
@@ -115,12 +156,6 @@ try {
     Assert (-not (Test-Path $install)) 'Fixture unexpectedly has a production install'
     Assert (-not (Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)) 'Fixture port occupied before Setup'
     $opened = Join-Path $Root 'opened-private.txt'
-    foreach ($scheme in @('http', 'https')) {
-        $key = "HKCU:\Software\Classes\$scheme"
-        New-Item -Path "$key\shell\open\command" -Force | Out-Null
-        Set-ItemProperty $key -Name 'URL Protocol' -Value ''
-        Set-Item -Path "$key\shell\open\command" -Value ('"' + $Root + '\capture.exe" "' + $opened + '" "%1"')
-    }
     Assert ((Run (Join-Path $Root 'capture.exe') ('"' + $opened + '" https://example.invalid/synthetic-capture-smoke')) -eq 0) 'Capture fixture direct smoke failed'
     Assert ((Wait-URL 'https://example.invalid/synthetic-capture-smoke') -eq 'https://example.invalid/synthetic-capture-smoke') 'Capture fixture direct smoke did not record synthetic URL'
     Passed 'synthetic capture fixture direct smoke'
@@ -141,12 +176,26 @@ try {
     Assert (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion') 'Missing current-user Apps registration'
     $firstPID = OwnedPID
     Passed 'production Setup under standard token: exact payload/source, real known folders/HKCU, shortcuts and owned background process'
-    Assert ((Run $bin 'launch') -eq 0) 'Warm launch failed'
+    $nativeCommand = [SageBoundary.ProfileProbe]::Association('https')
+    Assert ($nativeCommand.HResult -eq '00000000' -and $nativeCommand.Path -match '^"([^"\r\n]+\.exe)"(?:\s|$)') 'Native protocol association has no observable executable'
+    $nativeBrowser = $Matches[1]
+    Assert (@(Owned-BrowserProcesses $nativeBrowser).Count -eq 0) 'Native browser already running before public launch smoke'
+    Assert ((Run $bin 'launch') -eq 0) 'Native public launch failed'
+    $nativeProcesses = @()
+    for ($i=0; $i -lt 100 -and $nativeProcesses.Count -eq 0; $i++) {
+        $nativeProcesses = @(Owned-BrowserProcesses $nativeBrowser)
+        if ($nativeProcesses.Count -eq 0) { Start-Sleep -Milliseconds 100 }
+    }
+    Assert ($nativeProcesses.Count -gt 0) 'Native public launch did not start the OS-selected browser executable under the fixture SID'
+    @{ selected_command=$nativeCommand; owned_processes=$nativeProcesses; sid=$identity.User.Value; window_visibility='not validated'; private_urls_recorded=$false } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidence 'native-browser-smoke.json') -Encoding utf8
+    Passed 'native OS-selected browser process starts for public launch; window visibility unverified'
+    Instrument-SelectedHandlers
+    Assert ((Run $bin 'launch') -eq 0) 'Instrumented warm launch failed'
     $sageURL = Wait-URL 'https://steam-sage.effigy-analytics.com/'
     Assert ($sageURL -eq 'https://steam-sage.effigy-analytics.com/companion?installed=1') 'Warm launch dispatched the wrong public Sage URL'
     Assert ((OwnedPID) -eq $firstPID) 'Warm launch replaced singleton'
     Assert (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SteamSageCompanion -ErrorAction SilentlyContinue)) 'Startup enabled by default'
-    Passed 'native public Sage handoff, owned singleton and startup off'
+    Passed 'instrumented native dispatch observes exact public Sage handoff, owned singleton and startup off'
     Assert ((Run $bin 'stop') -eq 0) 'Verified stop failed'
     Assert ((Run $bin 'settings') -eq 0) 'Cold Settings failed'
     $null = Wait-Ready
@@ -161,6 +210,9 @@ try {
         $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $parameters.browser_tools 'browsers'
         & $parameters.node (Join-Path $Root 'sage/scripts/verify_windows_companion_flow.mjs') *> (Join-Path $evidence 'browser.log')
         if ($LASTEXITCODE) { throw 'Windows browser boundary failed; see browser.log' }
+        $null = Wait-Ready
+        $null = OwnedPID
+        Passed 'browser closure retains the owned background helper'
         Passed 'real Chromium HTTPS origin, explicit connection, separate approval context, read recovery, startup choice and upgrade'
     }
     $before = (Get-FileHash (Join-Path $config 'settings.json')).Hash
@@ -175,7 +227,7 @@ try {
     Assert (-not (Get-NetTCPConnection -LocalPort 43871 -State Listen -ErrorAction SilentlyContinue)) 'Uninstall left listener'
     Assert ((Get-FileHash (Join-Path $config 'settings.json')).Hash -eq $before) 'Uninstall changed settings'
     Passed 'actual production uninstaller stops owned process, removes package and preserves settings'
-    @{ ok=$true; checks=$checks; os=(Get-CimInstance Win32_OperatingSystem).Caption; build=[Environment]::OSVersion.Version.ToString(); sid=$identity.User.Value; standard_token=$true; desktop_validation=$false; installer_ui='silent execution of production GUI binaries'; default_browser='synthetic per-user URL handler through native ShellExecute' } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'result.json') -Encoding utf8
+    @{ ok=$true; checks=$checks; os=(Get-CimInstance Win32_OperatingSystem).Caption; build=[Environment]::OSVersion.Version.ToString(); sid=$identity.User.Value; standard_token=$true; desktop_validation=$false; installer_ui='silent execution of production GUI binaries'; default_browser='native OS-selected process smoke; later selected-ProgID command capture instrumentation'; window_visibility='not validated' } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'result.json') -Encoding utf8
 } catch {
     @{ ok=$false; checks=$checks; error=$_.Exception.Message; location=$_.ScriptStackTrace } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidence 'result.json') -Encoding utf8
     exit 1

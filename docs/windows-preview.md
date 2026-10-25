@@ -88,3 +88,10 @@ checkout (possibly a PR merge); publication requires an explicit merged public r
 Controller publishes after review and all native/CI checks. Then verify anonymous
 Setup/ZIP/source/checksum downloads against the locally reviewed hashes before
 merging/deploying Sage's new Windows link. No signing credentials are assumed.
+
+CI first observes a real OS-selected browser process under the disposable user's
+SID after public launch, without inspecting command lines or asserting visibility.
+For deterministic local-approval capture it then registers a temporary per-user
+command for the already-selected ProgID, verifies the effective command, and
+confirms UserChoice/Hash are unchanged. That command is fixture instrumentation,
+not a public artifact or a default-browser desktop validation claim.

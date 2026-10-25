@@ -12,6 +12,9 @@ namespace SageBoundary {
         static extern bool GetUserProfileDirectoryW(IntPtr token, StringBuilder path, ref uint size);
         [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
         static extern int AssocQueryStringW(uint flags, uint str, string association, string extra, StringBuilder result, ref uint size);
+        [DllImport("shell32.dll", ExactSpelling = true)]
+        static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+        public static void AssociationsChanged() { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); }
         public static FolderResult Association(string scheme) {
             uint size = 32768; StringBuilder command = new StringBuilder((int)size);
             // ASSOCF_IS_PROTOCOL maps through current-user defaults, not just raw HKCR.
