@@ -234,6 +234,65 @@ Check 'ordinary failure after replacements restores files and registration' {
     Assert ((Get-ItemPropertyValue (Join-Path $registry 'Uninstall') DisplayVersion) -ceq $registration) 'Prior registration lost'
     Assert (@(Get-ChildItem $root -Directory -Filter '*.recovery').Count -gt 0) 'No retained recovery evidence'
 }
+# Capture all fixed managed bytes and registration, including absence, before a
+# failing update. These bounded fixture records never include user settings.
+function Package-State {
+    $state = [ordered]@{}
+    foreach ($name in @('steam-sage-companion.exe','Uninstall.exe','LICENSE','THIRD_PARTY_NOTICES.txt','release.json','package.ini')) {
+        $state["file:$name"] = Hash (Join-Path $install $name)
+    }
+    foreach ($name in @('Steam Sage Companion.lnk','Companion Settings.lnk')) {
+        $state["link:$name"] = Hash (Join-Path $root ('Start Menu/Steam Sage Companion/' + $name))
+    }
+    foreach ($name in @('DisplayName','DisplayVersion','Publisher','UninstallString','InstallLocation')) {
+        $state["registry:$name"] = Get-ItemPropertyValue (Join-Path $registry 'Uninstall') $name
+    }
+    $state['registry:Run'] = '<absent>'
+    if (Test-Path (Join-Path $registry 'Run')) {
+        $value = Get-ItemProperty (Join-Path $registry 'Run')
+        if ($value.PSObject.Properties.Name -contains 'SteamSageCompanion') { $state['registry:Run'] = $value.SteamSageCompanion }
+    }
+    return $state
+}
+function Assert-PackageState($Before) {
+    $after = Package-State
+    foreach ($name in $Before.Keys) { Assert ($after[$name] -ceq $Before[$name]) "Prior package changed: $name" }
+}
+foreach ($failure in @(@{name='first';count='1'}, @{name='later';count='5'})) {
+    Check ("journal write failure at " + $failure.name + " move restores every prior file and registration") {
+        Fresh
+        $before = Package-State
+        New-Item -ItemType File (Join-Path $root ('fail-journal-' + $failure.name)) | Out-Null
+        # The old implementation ignores the write error. Force its eventual
+        # rollback too, so this fixture checks restoration, not only an exit code.
+        New-Item -ItemType File (Join-Path $root 'fail-after-registration') | Out-Null
+        Assert ((Run $upgrade '/S') -ne 0) 'Journal-write failure was ignored'
+        $observed = Join-Path $root 'journal-failure-observed'
+        Assert (Test-Path $observed) 'Fixture did not produce an actual journal-write error'
+        Assert ([IO.File]::ReadAllText($observed) -ceq $failure.count) 'Journal failed at an unexpected write'
+        Write-Host ('Observed actual journal-write error at write ' + $failure.count)
+        Assert-PackageState $before
+        Assert (@(Get-ChildItem $root -Directory -Filter '*.recovery').Count -gt 0) 'Missing retained recovery evidence'
+    }
+}
+foreach ($operation in @('upgrade','uninstall')) {
+    Check ("stale private recovery collision preserves current package and earlier evidence during " + $operation) {
+        Fresh
+        $before = Package-State
+        $stale = Join-Path $root 'stale.recovery'
+        Assert ((Run $payload ('package-check --operation preflight-install --stage-dir "' + $stale + '" --report "' + (Join-Path $stale 'report.ini') + '"')) -eq 0) 'Could not create private stale fixture'
+        [IO.File]::WriteAllText((Join-Path $stale 'exe.old'), 'earlier recovery payload')
+        [IO.File]::WriteAllText((Join-Path $stale 'ledger.old'), 'earlier recovery ledger')
+        [IO.File]::WriteAllText((Join-Path $stale 'transaction.ini'), "[exe]`r`nold=yes`r`nnew=yes`r`n", [Text.Encoding]::Unicode)
+        $evidence = [ordered]@{}
+        foreach ($name in @('exe.old','ledger.old','transaction.ini','report.ini')) { $evidence[$name] = Hash (Join-Path $stale $name) }
+        New-Item -ItemType File (Join-Path $root 'force-stage-collision') | Out-Null
+        $code = if ($operation -eq 'upgrade') { Run $upgrade '/S' } else { Uninstall }
+        Assert ($code -ne 0) 'Accepted an existing recovery directory'
+        Assert-PackageState $before
+        foreach ($name in $evidence.Keys) { Assert ((Hash (Join-Path $stale $name)) -eq $evidence[$name]) "Earlier recovery evidence changed: $name" }
+    }
+}
 Check 'uninstall preserves changed shortcuts registry Run and unknown files with cleanup evidence' {
     Fresh
     $shortcut = Join-Path $root 'Start Menu/Steam Sage Companion/Companion Settings.lnk'

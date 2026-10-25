@@ -42,18 +42,52 @@
   ${EndIf}
 !macroend
 
+; QA-only sharing failures exercise actual WriteINIStr errors, without filling
+; disks or changing permissions outside this fixture's private transaction.
+!macro WriteJournal ID STATE
+!ifdef QA_ROOT
+  IntOp $QA_JournalWrites $QA_JournalWrites + 1
+  StrCpy $8 0
+  ${If} ${FileExists} "${QA_ROOT}\fail-journal-first"
+  ${AndIf} $QA_JournalWrites == 1
+    StrCpy $8 1
+  ${EndIf}
+  ${If} ${FileExists} "${QA_ROOT}\fail-journal-later"
+  ${AndIf} $QA_JournalWrites == 5
+    StrCpy $8 1
+  ${EndIf}
+  ${If} $8 == 1
+    FileOpen $8 "$Stage\transaction.ini" a
+    FileClose $8
+    System::Call 'kernel32::CreateFileW(w "$Stage\transaction.ini", i 0x80000000, i 1, p 0, i 3, i 0x80, p 0) p.r8'
+    StrCpy $QA_JournalLock $8
+  ${EndIf}
+!endif
+  WriteINIStr "$Stage\transaction.ini" "${ID}" "${STATE}" "yes"
+!ifdef QA_ROOT
+  ${If} ${Errors}
+    ${IfNot} ${FileExists} "${QA_ROOT}\journal-failure-observed"
+      FileOpen $8 "${QA_ROOT}\journal-failure-observed" w
+      FileWrite $8 "$QA_JournalWrites"
+      FileClose $8
+    ${EndIf}
+    SetErrors
+  ${EndIf}
+!endif
+!macroend
+
 !macro ReplaceFile ID DEST
   ReadINIStr $0 "$Stage\before.ini" "${ID}" "status"
   ${If} $0 == "owned"
     ClearErrors
     Rename "${DEST}" "$Stage\${ID}.old"
     IfErrors install_failed
-    WriteINIStr "$Stage\transaction.ini" "${ID}" "old" "yes"
+    !insertmacro WriteJournal ${ID} old
   ${ElseIf} $0 != "missing"
     Goto install_failed
   ${EndIf}
   ; Mark the intended creation before CopyFiles, whose failure may leave a prefix.
-  WriteINIStr "$Stage\transaction.ini" "${ID}" "new" "yes"
+  !insertmacro WriteJournal ${ID} new
   ClearErrors
   CopyFiles /SILENT "$Stage\${ID}.new" "${DEST}"
   IfErrors install_failed

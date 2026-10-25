@@ -222,13 +222,26 @@ func writePrivate(stage, name string, raw []byte) error {
 	to, _ := windows.UTF16PtrFromString(dst)
 	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
+
+// Read adapters expose requested enumeration limits to native fixture tests.
+var readPackageDirectory = func(path string, count int) ([]os.DirEntry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.ReadDir(count)
+}
+var readPackageValueNames = func(key registry.Key, count int) ([]string, error) { return key.ReadValueNames(count) }
+var readPackageSubkeyNames = func(key registry.Key, count int) ([]string, error) { return key.ReadSubKeyNames(count) }
+
 func unknownItems(l winuser.Layout) bool {
 	allowed := map[string]bool{strings.ToLower(l.Ledger): true}
 	for _, f := range packageFiles(l) {
 		allowed[strings.ToLower(f.path)] = true
 	}
 	for _, dir := range []string{l.InstallDir, l.StartMenuDir} {
-		entries, err := os.ReadDir(dir)
+		entries, err := readPackageDirectory(dir, -1)
 		if err != nil && !os.IsNotExist(err) {
 			return true
 		}
@@ -246,7 +259,7 @@ func unknownItems(l winuser.Layout) bool {
 		return true
 	}
 	defer key.Close()
-	names, err := key.ReadValueNames(-1)
+	names, err := readPackageValueNames(key, -1)
 	if err != nil {
 		return true
 	}
@@ -261,7 +274,7 @@ func unknownItems(l winuser.Layout) bool {
 			return true
 		}
 	}
-	children, err := key.ReadSubKeyNames(-1)
+	children, err := readPackageSubkeyNames(key, -1)
 	return err != nil || len(children) > 0
 }
 

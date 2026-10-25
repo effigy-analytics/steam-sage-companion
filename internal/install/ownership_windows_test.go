@@ -229,3 +229,111 @@ func TestWindowsRegistryInspectionRejectsHiddenSuffixAndMalformedUTF16(t *testin
 		})
 	}
 }
+
+func TestWindowsInspectorEnumerationIsFiniteAndConservative(t *testing.T) {
+	for _, scenario := range []string{"empty", "install-extra", "menu-extra", "values-extra", "subkey", "directory-error", "values-error", "subkey-error"} {
+		t.Run(scenario, func(t *testing.T) {
+			l := fixtureLayout(t)
+			for _, dir := range []string{l.InstallDir, l.StartMenuDir} {
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			key, _, err := registry.CreateKey(registry.CURRENT_USER, uninstallRegistry, registry.ALL_ACCESS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer key.Close()
+			switch scenario {
+			case "install-extra", "menu-extra":
+				dir := l.InstallDir
+				if scenario == "menu-extra" {
+					dir = l.StartMenuDir
+				}
+				for i := 0; i < 10; i++ {
+					if err := os.WriteFile(filepath.Join(dir, string(rune('a'+i))), []byte("keep"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "values-extra":
+				for i := 0; i < 6; i++ {
+					if err := key.SetStringValue(string(rune('a'+i)), "keep"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "subkey":
+				child, _, err := registry.CreateKey(key, "keep", registry.ALL_ACCESS)
+				if err != nil {
+					t.Fatal(err)
+				}
+				child.Close()
+				defer registry.DeleteKey(key, "keep")
+			}
+			oldDir, oldValues, oldChildren := readPackageDirectory, readPackageValueNames, readPackageSubkeyNames
+			defer func() {
+				readPackageDirectory, readPackageValueNames, readPackageSubkeyNames = oldDir, oldValues, oldChildren
+			}()
+			dirs, values, children := 0, 0, 0
+			readPackageDirectory = func(path string, count int) ([]os.DirEntry, error) {
+				dirs++
+				limit := 7 // Five fixed install files plus ledger, then one overflow entry.
+				if path == l.StartMenuDir {
+					limit = 3
+				}
+				if count <= 0 || count > limit {
+					t.Errorf("directory enumeration count=%d, require 1..%d", count, limit)
+				}
+				if scenario == "directory-error" {
+					return nil, os.ErrPermission
+				}
+				return oldDir(path, count)
+			}
+			readPackageValueNames = func(k registry.Key, count int) ([]string, error) {
+				values++
+				if count <= 0 || count > 6 {
+					t.Errorf("value enumeration count=%d, require 1..6", count)
+				}
+				if scenario == "values-error" {
+					return nil, os.ErrPermission
+				}
+				return oldValues(k, count)
+			}
+			readPackageSubkeyNames = func(k registry.Key, count int) ([]string, error) {
+				children++
+				if count != 1 {
+					t.Errorf("subkey enumeration count=%d, require exactly 1", count)
+				}
+				if scenario == "subkey-error" {
+					return nil, os.ErrPermission
+				}
+				return oldChildren(k, count)
+			}
+			stage := filepath.Join(t.TempDir(), "inspection")
+			report := filepath.Join(stage, "report.ini")
+			if err := InspectPackage("preflight-install", stage, report); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ini, err := decodeINI(raw, reportLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "yes"
+			if scenario == "empty" {
+				want = "no"
+			}
+			if got := ini["package"]["leftovers"]; got != want {
+				t.Errorf("leftovers=%q want %q", got, want)
+			}
+			if dirs == 0 {
+				t.Fatal("directory reader was not exercised")
+			}
+			if scenario == "empty" && (values == 0 || children == 0) {
+				t.Fatal("empty fixture did not exercise every enumeration boundary")
+			}
+		})
+	}
+}

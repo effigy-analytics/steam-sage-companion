@@ -44,6 +44,10 @@ Var OldUninstall
 Var OldLocation
 Var LedgerMoved
 Var LedgerCommitted
+!ifdef QA_ROOT
+Var QA_JournalWrites
+Var QA_JournalLock
+!endif
 
 !macro Initialize PREFIX
 Function ${PREFIX}.onInit
@@ -140,6 +144,12 @@ Function ${PREFIX}.onInit
   IfErrors initialization_failed
   Delete "$Stage"
   StrCpy $Stage "$Stage.recovery"
+!ifdef QA_ROOT
+  StrCpy $QA_JournalWrites 0
+  ${If} ${FileExists} "${QA_ROOT}\force-stage-collision"
+    StrCpy $Stage "${QA_ROOT}\stale.recovery"
+  ${EndIf}
+!endif
   Return
 initialization_failed:
   SetErrorLevel 1

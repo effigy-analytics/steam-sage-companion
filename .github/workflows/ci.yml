@@ -45,8 +45,9 @@ jobs:
         if: runner.os == 'Linux'
         run: scripts/with-isolated-network.sh go test -race -count=1 -v ./...
       - run: go build ./cmd/steam-sage-companion
+      # RED checkpoint: exercise package failures even when limit tests fail.
       - name: Native Windows package fixtures (separate QA adapter)
-        if: runner.os == 'Windows'
+        if: always() && runner.os == 'Windows'
         shell: pwsh
         run: scripts/verify_windows_package.ps1 -Output "$env:RUNNER_TEMP/package-evidence"
       - name: Retain Windows packaging evidence
