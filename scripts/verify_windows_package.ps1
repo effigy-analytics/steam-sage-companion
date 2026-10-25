@@ -43,9 +43,18 @@ function Check([string]$Name, [scriptblock]$Body) {
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Run([string]$File, [string]$Arguments) {
     $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru
-    if (-not $p.WaitForExit(30000)) { throw 'Fixture process exceeded 30 seconds' }
-    $p.Refresh()
-    return $p.ExitCode
+    try {
+        if (-not $p.WaitForExit(30000)) {
+            [ordered]@{ executable=$File; pid=$p.Id; arguments=$Arguments; fixture_root=$root } | ConvertTo-Json | Set-Content (Join-Path $Output ('fixture-timeout-' + $p.Id + '.json')) -Encoding utf8
+            # Only the exact process returned by Start-Process is ours to stop.
+            # No process-name, port-owner, or unrelated helper termination.
+            $p.Kill()
+            $null = $p.WaitForExit(5000)
+            throw 'Fixture process exceeded 30 seconds; its held child process was stopped'
+        }
+        $p.Refresh()
+        return $p.ExitCode
+    } finally { $p.Dispose() }
 }
 Check 'inspector writes bounded Unicode report without product or settings mutations' {
     $code = Run $payload ('package-check --operation preflight-install --stage-dir "' + $stage + '" --report "' + $report + '"')
