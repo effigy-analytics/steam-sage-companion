@@ -18,6 +18,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// ErrNotRunning means only that the independently named activation pipe does not exist.
+// Other connection and peer-verification failures must never permit package mutation.
+var ErrNotRunning = errors.New("companion activation pipe is absent")
+
 func activationNameFor(sid, dir string) (string, error) {
 	if _, err := windows.StringToSid(sid); err != nil {
 		return "", err
@@ -187,7 +191,10 @@ func requestVerifiedActivation(dir, exe string, command byte, deadline time.Time
 	defer cancel()
 	conn, err := winio.DialPipeContext(ctx, name)
 	if err != nil {
-		return 0, errors.New("no verified running companion for these settings")
+		if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+			return 0, errors.Join(ErrNotRunning, err)
+		}
+		return 0, errors.Join(errors.New("cannot verify running companion for these settings"), err)
 	}
 	defer conn.Close()
 	if err = conn.SetDeadline(deadline); err != nil {

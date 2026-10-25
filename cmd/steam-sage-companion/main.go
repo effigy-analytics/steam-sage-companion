@@ -115,6 +115,9 @@ func main() {
 			}
 			if err != nil {
 				reportCommandError(command, *background, err)
+				if command == "stop" {
+					os.Exit(stopExitCode(err))
+				}
 				os.Exit(1)
 			}
 			return
