@@ -22,14 +22,20 @@ try {
     $downloads = [Collections.Generic.List[object]]::new()
     $verified = $false
     # Alternate official SourceForge transport is acceptable only for identical pinned bytes.
-    $urls = @($manifest.url, 'https://psychz.dl.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip')
+    $urls = @(($manifest.url + '?download=1'), 'https://psychz.dl.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip?viasf=1', 'https://netix.dl.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip?viasf=1')
     foreach ($url in $urls) {
         $record = [ordered]@{ url=$url; expected_sha256=$manifest.sha256 }
         try {
-            $response = Invoke-WebRequest $url -OutFile $zip -PassThru
-            $record.status = [int]$response.StatusCode
-            $record.final_url = [string]$response.BaseResponse.RequestMessage.RequestUri
-            $record.content_type = [string]$response.Headers['Content-Type']
+            # SourceForge served an HTML download landing page to native PowerShell.
+            # curl's explicit download transport follows the official signed mirror URL.
+            $transport = & curl.exe --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 90 --proto '=https' --proto-redir '=https' --user-agent 'curl/8.16.0' --output $zip --write-out '%{json}' $url
+            $curlExit = $LASTEXITCODE
+            $response = $transport | ConvertFrom-Json
+            $record.status = [int]$response.http_code
+            $record.final_url = [string]$response.url_effective
+            $record.content_type = [string]$response.content_type
+            $record.transport = 'curl.exe HTTPS only'
+            if ($curlExit) { throw "curl failed with exit $curlExit" }
             $record.bytes = (Get-Item $zip).Length
             $record.sha256 = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
             $stream = [IO.File]::OpenRead($zip)
