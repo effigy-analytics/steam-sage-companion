@@ -16,8 +16,29 @@ $install = Join-Path $root 'Programs/Steam Sage Companion'
 $stage = Join-Path $root 'inspection'
 $report = Join-Path $stage 'report.ini'
 $failures = [Collections.Generic.List[string]]::new()
+$script:observationIndex = 0
+$script:evidenceRoots = [Collections.Generic.List[string]]::new()
+$script:evidenceRoots.Add($root)
 function Check([string]$Name, [scriptblock]$Body) {
-    try { & $Body; Write-Host "PASS $Name" } catch { $failures.Add($Name + ': ' + $_); Write-Host "FAIL $Name`: $_" }
+    try { & $Body; Write-Host "PASS $Name" } catch { $failures.Add($Name + ': ' + $_); Write-Host "FAIL $Name`: $_" } finally {
+        # Retain only bounded synthetic reports before the next scenario resets.
+        # Recovery binary payloads stay in fixture roots; never copy settings.
+        $script:observationIndex++
+        $observation = Join-Path $Output ('observations/' + $script:observationIndex)
+        New-Item -ItemType Directory -Force $observation | Out-Null
+        $Name | Set-Content (Join-Path $observation 'case.txt') -Encoding utf8
+        foreach ($fixture in $script:evidenceRoots) {
+            if (-not (Test-Path $fixture)) { continue }
+            foreach ($recovery in @(Get-ChildItem $fixture -Directory -Filter '*.recovery')) {
+                $destination = Join-Path $observation $recovery.Name
+                New-Item -ItemType Directory -Force $destination | Out-Null
+                foreach ($name in @('report.ini','before.ini','transaction.ini','candidate.ini','ledger.old')) {
+                    $path = Join-Path $recovery.FullName $name
+                    if ((Test-Path $path) -and (Get-Item $path).Length -le 65536) { Copy-Item $path (Join-Path $destination $name) }
+                }
+            }
+        }
+    }
 }
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Run([string]$File, [string]$Arguments) {
@@ -216,6 +237,7 @@ Check 'redirected Start Menu on another volume supports upgrade and rollback' {
     Assert ($otherDrive.Count -gt 0) 'This native fixture requires a second real fixed volume'
     $crossRoot = Join-Path $fixtureBase ('Sage Cross Volume ' + [guid]::NewGuid().ToString('N'))
     $crossMenu = Join-Path $otherDrive[0].Name ('Sage QA Menu 雪 ' + [guid]::NewGuid().ToString('N'))
+    $script:evidenceRoots.Add($crossRoot)
     New-Item -ItemType Directory $crossRoot | Out-Null
     New-Item -ItemType Directory $crossMenu | Out-Null
     Assert ([IO.Path]::GetPathRoot($crossRoot) -ne [IO.Path]::GetPathRoot($crossMenu)) 'Fixture did not cross volumes'
