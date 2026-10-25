@@ -140,12 +140,13 @@ try {
     Assert (Test-Path (Join-Path $menu 'Companion Settings.lnk')) 'Missing native Settings shortcut'
     Assert (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SteamSageCompanion') 'Missing current-user Apps registration'
     $firstPID = OwnedPID
+    Passed 'production Setup under standard token: exact payload/source, real known folders/HKCU, shortcuts and owned background process'
     Assert ((Run $bin 'launch') -eq 0) 'Warm launch failed'
     $sageURL = Wait-URL 'https://steam-sage.effigy-analytics.com/'
     Assert ($sageURL -eq 'https://steam-sage.effigy-analytics.com/companion?installed=1') 'Warm launch dispatched the wrong public Sage URL'
     Assert ((OwnedPID) -eq $firstPID) 'Warm launch replaced singleton'
     Assert (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SteamSageCompanion -ErrorAction SilentlyContinue)) 'Startup enabled by default'
-    Passed 'production Setup, standard token, real known folders/HKCU, background survival, singleton and startup off'
+    Passed 'native public Sage handoff, owned singleton and startup off'
     Assert ((Run $bin 'stop') -eq 0) 'Verified stop failed'
     Assert ((Run $bin 'settings') -eq 0) 'Cold Settings failed'
     $null = Wait-Ready

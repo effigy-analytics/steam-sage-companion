@@ -14,7 +14,8 @@ namespace SageBoundary {
         static extern int AssocQueryStringW(uint flags, uint str, string association, string extra, StringBuilder result, ref uint size);
         public static FolderResult Association(string scheme) {
             uint size = 32768; StringBuilder command = new StringBuilder((int)size);
-            int result = AssocQueryStringW(0, 1, scheme, "open", command, ref size);
+            // ASSOCF_IS_PROTOCOL maps through current-user defaults, not just raw HKCR.
+            int result = AssocQueryStringW(0x1000, 1, scheme, "open", command, ref size);
             return new FolderResult { HResult = unchecked((uint)result).ToString("X8"), Path = result == 0 ? command.ToString() : "" };
         }
         public static FolderResult Folder(string identifier, uint flags, IntPtr token) {
