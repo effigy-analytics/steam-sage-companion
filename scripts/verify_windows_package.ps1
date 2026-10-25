@@ -225,6 +225,20 @@ Check 'normal uninstall preserves settings and browser choice and removes owned 
     Assert ([IO.File]::ReadAllText($settings) -ceq 'preserved settings fixture') 'Settings removed'
     Assert ([IO.File]::ReadAllText($browser) -ceq 'preserved browser fixture') 'Browser preferences changed'
 }
+Check 'per-user package lock also honors the global cross-session namespace' {
+    Fresh
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $name = 'Global\SteamSageCompanion-Package-' + $sid + '-' + (Split-Path $root -Leaf)
+    $created = $false
+    $mutex = [Threading.Mutex]::new($false, $name, [ref]$created)
+    try {
+        Assert $created 'Fixture global lock unexpectedly existed'
+        $before = Hash (Join-Path $install 'package.ini')
+        Assert ((Run $upgrade '/S') -eq 1618) 'Setup ignored an existing global per-user package operation'
+        Assert ((Uninstall) -eq 1618) 'Uninstall ignored an existing global per-user package operation'
+        Assert ((Hash (Join-Path $install 'package.ini')) -eq $before) 'Contender changed the winning package ledger'
+    } finally { $mutex.Dispose() }
+}
 Check 'concurrent Setup and Uninstall reports busy without disturbing winning transaction' {
     Fresh
     New-Item -ItemType File (Join-Path $root 'hold-lock') | Out-Null
