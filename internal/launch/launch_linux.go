@@ -12,8 +12,6 @@ import (
 	"github.com/effigy-analytics/steam-sage-companion/internal/platform"
 )
 
-type Options struct{ Executable, ConfigDir, ExtraOrigin string }
-
 // Run never treats an HTTP listener as proof of an owned companion.
 func Run(options Options) error {
 	if !filepath.IsAbs(options.Executable) || !filepath.IsAbs(options.ConfigDir) {

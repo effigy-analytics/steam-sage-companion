@@ -120,3 +120,20 @@ func TestWindowsCanonicalDirRejectsReparseAncestor(t *testing.T) {
 		t.Fatalf("rejected real directory: %v", err)
 	}
 }
+
+func TestWindowsCanonicalDirRejectsTrailingDotsAndSpaces(t *testing.T) {
+	root := t.TempDir()
+	for _, suffix := range []string{"settings.", "settings ", `nested.\settings`, `nested \settings`} {
+		if _, err := CanonicalDir(filepath.Join(root, suffix)); err == nil {
+			t.Errorf("accepted ambiguous missing Windows component %q", suffix)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(root, "settings"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"settings.", "settings "} {
+		if _, err := CanonicalDir(filepath.Join(root, suffix)); err == nil {
+			t.Errorf("accepted existing alias %q", suffix)
+		}
+	}
+}
