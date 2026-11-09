@@ -1,0 +1,43 @@
+# Template source: effigy-analytics/.github/templates/dependabot/actions-only.yml,
+# plus a gomod entry in the same shape (no Go template exists yet).
+# Low-activity repo: version updates run monthly (umbrella#73 D2 rule: fewer
+# than 5 non-Dependabot commits to the default branch in 60 days; 4 as of
+# 2026-11-08). Security updates are raised as soon as an advisory matches,
+# independent of this schedule. Return to weekly if activity picks up.
+# No `labels:` key: this repo has none of the template's labels, and Dependabot
+# creates its default `dependencies` and ecosystem labels only when none are set.
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
